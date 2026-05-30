@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.document_loader import load_document
-from src.rag_chain import build_retrieval_answer
+from src.rag_chain import build_llm_answer
 from src.text_splitter import split_pages
 from src.vector_store import DocumentVectorStore
 
@@ -43,6 +43,13 @@ with st.sidebar:
     chunk_size = st.slider("Chunk 大小", min_value=300, max_value=1500, value=800, step=100)
     overlap = st.slider("Overlap", min_value=0, max_value=300, value=120, step=20)
 
+    st.divider()
+    st.header("模型设置")
+    provider_label = st.selectbox("LLM Provider", ["关闭生成，只看检索", "Ollama 本地免费模型"])
+    llm_provider = "ollama" if provider_label == "Ollama 本地免费模型" else "disabled"
+    ollama_model = st.text_input("Ollama 模型名", value="qwen2.5:3b")
+    ollama_base_url = st.text_input("Ollama 地址", value="http://localhost:11434")
+
     if st.button("加载示例文档"):
         with st.spinner("正在加载 examples/sample.txt ..."):
             sample_path = ROOT_DIR / "examples" / "sample.txt"
@@ -69,10 +76,16 @@ with left:
     top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
 
     if st.button("检索并回答", type="primary", disabled=not question.strip()):
-        with st.spinner("正在检索相关片段..."):
+        with st.spinner("正在检索相关片段并生成答案..."):
             hits = store.search(question, top_k=top_k)
             st.session_state["last_hits"] = hits
-            st.session_state["last_answer"] = build_retrieval_answer(question, hits)
+            st.session_state["last_answer"] = build_llm_answer(
+                question,
+                hits,
+                provider=llm_provider,
+                model=ollama_model,
+                base_url=ollama_base_url,
+            )
 
     if "last_answer" in st.session_state:
         st.markdown("#### 回答")

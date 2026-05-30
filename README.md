@@ -36,8 +36,26 @@ Document -> Chunk -> Embedding -> Vector Store -> Retrieve -> Generate
 
 ## 后续计划
 
-- 接入 OpenAI / Ollama / 兼容 API 大模型
+- 接入 OpenAI / 兼容 API 大模型
 - 支持 OCR 和扫描 PDF
 - 接入 Qwen-VL 或 MiniCPM-V 做图片、图表、截图理解
 - 增加 Rerank 和 Hybrid Search
 - 增加 RAG 评测模块
+
+## 免费本地大模型
+
+当前版本支持 Ollama 本地模型。Ollama 免费运行在你的电脑上，不需要 API Key。
+
+安装 Ollama 后，下载一个小模型：
+
+```bash
+ollama pull qwen2.5:3b
+```
+
+启动应用后，在侧边栏把 `LLM Provider` 选择为 `Ollama 本地免费模型`，模型名保持：
+
+```text
+qwen2.5:3b
+```
+
+如果没有安装或没有启动 Ollama，系统会自动降级为检索结果草稿。
