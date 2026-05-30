@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import streamlit as st
@@ -45,10 +46,30 @@ with st.sidebar:
 
     st.divider()
     st.header("模型设置")
-    provider_label = st.selectbox("LLM Provider", ["关闭生成，只看检索", "Ollama 本地免费模型"])
-    llm_provider = "ollama" if provider_label == "Ollama 本地免费模型" else "disabled"
-    ollama_model = st.text_input("Ollama 模型名", value="qwen2.5:3b")
-    ollama_base_url = st.text_input("Ollama 地址", value="http://localhost:11434")
+    provider_label = st.selectbox(
+        "LLM Provider",
+        ["DeepSeek API", "关闭生成，只看检索", "Ollama 本地免费模型"],
+    )
+    if provider_label == "DeepSeek API":
+        llm_provider = "deepseek"
+        model = st.text_input("DeepSeek 模型名", value="deepseek-v4-flash")
+        base_url = st.text_input("DeepSeek 地址", value="https://api.deepseek.com")
+        api_key = st.text_input(
+            "DeepSeek API Key",
+            value=os.getenv("DEEPSEEK_API_KEY", ""),
+            type="password",
+            help="只在当前页面会话里使用，不会写入代码或 GitHub。",
+        )
+    elif provider_label == "Ollama 本地免费模型":
+        llm_provider = "ollama"
+        model = st.text_input("Ollama 模型名", value="qwen2.5:3b")
+        base_url = st.text_input("Ollama 地址", value="http://localhost:11434")
+        api_key = ""
+    else:
+        llm_provider = "disabled"
+        model = "disabled"
+        base_url = ""
+        api_key = ""
 
     if st.button("加载示例文档"):
         with st.spinner("正在加载 examples/sample.txt ..."):
@@ -72,7 +93,11 @@ left, right = st.columns([0.58, 0.42], gap="large")
 
 with left:
     st.subheader("提问")
-    question = st.text_area("输入你想问文档的问题", height=120, placeholder="例如：这篇文档主要解决什么问题？")
+    question = st.text_area(
+        "输入你想问文档的问题",
+        height=120,
+        placeholder="例如：这篇文档主要解决什么问题？",
+    )
     top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
 
     if st.button("检索并回答", type="primary", disabled=not question.strip()):
@@ -83,8 +108,9 @@ with left:
                 question,
                 hits,
                 provider=llm_provider,
-                model=ollama_model,
-                base_url=ollama_base_url,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
             )
 
     if "last_answer" in st.session_state:

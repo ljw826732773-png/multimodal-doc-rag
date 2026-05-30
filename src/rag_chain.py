@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.llm_client import LLMError, generate_with_ollama
+from src.llm_client import LLMError, generate_with_deepseek, generate_with_ollama
 
 
 def build_retrieval_answer(question: str, contexts: list[dict]) -> str:
@@ -8,7 +8,7 @@ def build_retrieval_answer(question: str, contexts: list[dict]) -> str:
         return "没有在当前知识库中检索到相关内容。"
 
     lines = [
-        "我先给出基于检索片段的回答草稿。当前版本还没有接入生成式大模型，所以这里会把最相关的证据整理出来，后续会替换成 LLM 生成答案。",
+        "我先给出基于检索片段的回答草稿。当前没有启用生成式大模型，所以这里会把最相关的证据整理出来。",
         "",
         f"问题：{question}",
         "",
@@ -27,7 +27,7 @@ def build_retrieval_answer(question: str, contexts: list[dict]) -> str:
     lines.extend(
         [
             "",
-            "学习提示：这一步对应 RAG 里的 Retrieve，也就是先找资料。下一步接入 LLM 后，会把这些片段作为上下文交给模型生成自然语言答案。",
+            "学习提示：这一步对应 RAG 里的 Retrieve，也就是先找资料。启用 DeepSeek 或 Ollama 后，会把这些片段作为上下文交给模型生成自然语言答案。",
         ]
     )
     return "\n".join(lines)
@@ -37,8 +37,9 @@ def build_llm_answer(
     question: str,
     contexts: list[dict],
     provider: str = "disabled",
-    model: str = "qwen2.5:3b",
-    base_url: str = "http://localhost:11434",
+    model: str = "deepseek-v4-flash",
+    base_url: str = "https://api.deepseek.com",
+    api_key: str = "",
 ) -> str:
     if provider == "disabled":
         return build_retrieval_answer(question, contexts)
@@ -48,12 +49,19 @@ def build_llm_answer(
 
     prompt = build_rag_prompt(question, contexts)
 
-    if provider == "ollama":
-        try:
+    try:
+        if provider == "deepseek":
+            return generate_with_deepseek(
+                prompt=prompt,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+            )
+        if provider == "ollama":
             return generate_with_ollama(prompt=prompt, model=model, base_url=base_url)
-        except LLMError as exc:
-            fallback = build_retrieval_answer(question, contexts)
-            return f"{exc}\n\n已降级为检索结果草稿：\n\n{fallback}"
+    except LLMError as exc:
+        fallback = build_retrieval_answer(question, contexts)
+        return f"{exc}\n\n已降级为检索结果草稿：\n\n{fallback}"
 
     raise ValueError(f"Unsupported provider: {provider}")
 

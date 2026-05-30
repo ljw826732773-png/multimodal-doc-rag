@@ -59,3 +59,22 @@ qwen2.5:3b
 ```
 
 如果没有安装或没有启动 Ollama，系统会自动降级为检索结果草稿。
+
+## DeepSeek API
+
+当前版本也支持 DeepSeek API。启动应用后，在侧边栏选择：
+
+```text
+LLM Provider: DeepSeek API
+DeepSeek 模型名: deepseek-v4-flash
+DeepSeek 地址: https://api.deepseek.com
+```
+
+然后在 `DeepSeek API Key` 输入框中填入你的 key。Key 只在当前页面会话里使用，不会写入代码或提交到 GitHub。
+
+也可以用环境变量设置：
+
+```powershell
+$env:DEEPSEEK_API_KEY="你的 API Key"
+streamlit run app.py
+```
