@@ -1,0 +1,7 @@
+RAG stands for Retrieval-Augmented Generation.
+
+In a document question answering system, the application first splits documents into chunks, then converts each chunk into an embedding vector. The vectors are stored in a vector database.
+
+When a user asks a question, the system embeds the question and retrieves the most relevant chunks. A language model can then answer using these chunks as context. Showing citations helps users verify where the answer came from.
+
+For multimodal document understanding, OCR and vision-language models can convert scanned pages, screenshots, charts, and images into text or structured descriptions before indexing them.
