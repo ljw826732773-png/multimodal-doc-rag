@@ -7,11 +7,14 @@ from pathlib import Path
 import streamlit as st
 
 from src.document_loader import load_document
+from src.document_loader import IMAGE_SUFFIXES
+from src.document_loader import PageText
 from src.evaluation import run_retrieval_eval
 from src.rag_chain import build_llm_answer
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
 from src.vector_store import DocumentVectorStore
+from src.vision_client import VisionError, describe_image_openai_compatible
 
 
 ROOT_DIR = Path(__file__).parent
@@ -85,6 +88,18 @@ with st.sidebar:
         base_url = ""
         api_key = ""
 
+    st.divider()
+    st.header("视觉理解")
+    enable_vision = st.checkbox("启用视觉模型描述（图片/图表）", value=False)
+    vision_model = st.text_input("视觉模型名", value="qwen-vl-max")
+    vision_base_url = st.text_input("视觉模型地址", value="")
+    vision_api_key = st.text_input(
+        "视觉模型 API Key",
+        value=os.getenv("VISION_API_KEY", ""),
+        type="password",
+        help="可填写任意 OpenAI-compatible 视觉模型接口；DeepSeek 当前主要用于文本问答。",
+    )
+
 tab_qa, tab_eval = st.tabs(["问答", "评测"])
 
 with tab_qa:
@@ -101,6 +116,23 @@ with tab_qa:
         with st.spinner("正在解析文档并写入向量库..."):
             file_path = save_uploaded_file(uploaded_file)
             pages = load_document(file_path, enable_ocr=enable_ocr)
+            if enable_vision and file_path.suffix.lower() in IMAGE_SUFFIXES:
+                try:
+                    description = describe_image_openai_compatible(
+                        image_path=file_path,
+                        api_key=vision_api_key,
+                        model=vision_model,
+                        base_url=vision_base_url,
+                    )
+                    pages.append(
+                        PageText(
+                            source=file_path.name,
+                            page=1,
+                            text=f"视觉模型描述：\n{description}",
+                        )
+                    )
+                except VisionError as exc:
+                    st.warning(str(exc))
             chunks = split_pages(pages, chunk_size=chunk_size, overlap=overlap)
             count = store.add_chunks(chunks)
 
