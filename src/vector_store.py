@@ -70,3 +70,11 @@ class DocumentVectorStore:
 
     def count(self) -> int:
         return self.collection.count()
+
+    def clear(self) -> int:
+        existing = self.collection.get(include=[])
+        ids = existing.get("ids", [])
+        if not ids:
+            return 0
+        self.collection.delete(ids=ids)
+        return len(ids)

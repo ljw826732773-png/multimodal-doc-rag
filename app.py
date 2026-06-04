@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 import streamlit as st
 
 from src.document_loader import load_document
+from src.evaluation import run_retrieval_eval
 from src.rag_chain import build_llm_answer
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
@@ -15,6 +17,7 @@ from src.vector_store import DocumentVectorStore
 ROOT_DIR = Path(__file__).parent
 UPLOAD_DIR = ROOT_DIR / "data" / "uploads"
 CHROMA_DIR = ROOT_DIR / "data" / "chroma"
+EVAL_CHROMA_DIR = ROOT_DIR / "data" / "eval_chroma"
 
 
 st.set_page_config(page_title="Multimodal Doc RAG", page_icon="doc", layout="wide")
@@ -49,6 +52,12 @@ with st.sidebar:
     chunk_size = st.slider("Chunk 大小", min_value=300, max_value=1500, value=800, step=100)
     overlap = st.slider("Overlap", min_value=0, max_value=300, value=120, step=20)
 
+    if st.button("清空知识库"):
+        deleted = store.clear()
+        st.session_state.pop("last_hits", None)
+        st.session_state.pop("last_answer", None)
+        st.success(f"已清空 {deleted} 个 chunk。")
+
     st.divider()
     st.header("模型设置")
     provider_label = st.selectbox(
@@ -76,6 +85,9 @@ with st.sidebar:
         base_url = ""
         api_key = ""
 
+tab_qa, tab_eval = st.tabs(["问答", "评测"])
+
+with tab_qa:
     if st.button("加载示例文档"):
         with st.spinner("正在加载 examples/sample.txt ..."):
             sample_path = ROOT_DIR / "examples" / "sample.txt"
@@ -94,48 +106,75 @@ with st.sidebar:
 
         st.success(f"完成：解析 {len(pages)} 页，写入 {count} 个 chunk。")
 
-left, right = st.columns([0.58, 0.42], gap="large")
+    left, right = st.columns([0.58, 0.42], gap="large")
 
-with left:
-    st.subheader("提问")
-    question = st.text_area(
-        "输入你想问文档的问题",
-        height=120,
-        placeholder="例如：这篇文档主要解决什么问题？",
-    )
-    top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
-    fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
-    use_rerank = st.checkbox("启用轻量重排", value=True)
+    with left:
+        st.subheader("提问")
+        question = st.text_area(
+            "输入你想问文档的问题",
+            height=120,
+            placeholder="例如：这篇文档主要解决什么问题？",
+        )
+        top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
+        fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
+        use_rerank = st.checkbox("启用轻量重排", value=True)
 
-    if st.button("检索并回答", type="primary", disabled=not question.strip()):
-        with st.spinner("正在检索相关片段并生成答案..."):
-            hits = store.search(question, top_k=fetch_k)
-            if use_rerank:
-                hits = rerank_hits(question, hits, top_k=top_k)
-            else:
-                hits = hits[:top_k]
-            st.session_state["last_hits"] = hits
-            st.session_state["last_answer"] = build_llm_answer(
-                question,
-                hits,
-                provider=llm_provider,
-                model=model,
-                base_url=base_url,
-                api_key=api_key,
+        if st.button("检索并回答", type="primary", disabled=not question.strip()):
+            with st.spinner("正在检索相关片段并生成答案..."):
+                hits = store.search(question, top_k=fetch_k)
+                if use_rerank:
+                    hits = rerank_hits(question, hits, top_k=top_k)
+                else:
+                    hits = hits[:top_k]
+                st.session_state["last_hits"] = hits
+                st.session_state["last_answer"] = build_llm_answer(
+                    question,
+                    hits,
+                    provider=llm_provider,
+                    model=model,
+                    base_url=base_url,
+                    api_key=api_key,
+                )
+
+        if "last_answer" in st.session_state:
+            st.markdown("#### 回答")
+            st.write(st.session_state["last_answer"])
+
+    with right:
+        st.subheader("引用来源")
+        hits = st.session_state.get("last_hits", [])
+        if not hits:
+            st.info("提问后这里会显示检索命中的原文片段。")
+        for hit in hits:
+            with st.expander(
+                f"{hit['source']} | 第 {hit['page']} 页 | chunk {hit['chunk_index']} | score {hit['score']:.3f}",
+                expanded=False,
+            ):
+                st.write(hit["text"])
+
+with tab_eval:
+    st.subheader("检索评测")
+    st.write("使用示例文档和问题集评测检索片段是否覆盖标准关键词。")
+    eval_top_k = st.slider("评测 Top-K", min_value=1, max_value=10, value=3)
+    eval_fetch_k = st.slider("评测 Fetch-K", min_value=eval_top_k, max_value=20, value=8)
+    eval_rerank = st.checkbox("评测启用轻量重排", value=True)
+
+    if st.button("运行示例评测", type="primary"):
+        with st.spinner("正在运行评测..."):
+            report = run_retrieval_eval(
+                document_path=ROOT_DIR / "examples" / "sample.txt",
+                questions_path=ROOT_DIR / "eval" / "questions.json",
+                persist_dir=EVAL_CHROMA_DIR,
+                top_k=eval_top_k,
+                fetch_k=eval_fetch_k,
+                use_rerank=eval_rerank,
             )
-
-    if "last_answer" in st.session_state:
-        st.markdown("#### 回答")
-        st.write(st.session_state["last_answer"])
-
-with right:
-    st.subheader("引用来源")
-    hits = st.session_state.get("last_hits", [])
-    if not hits:
-        st.info("提问后这里会显示检索命中的原文片段。")
-    for hit in hits:
-        with st.expander(
-            f"{hit['source']} | 第 {hit['page']} 页 | chunk {hit['chunk_index']} | score {hit['score']:.3f}",
-            expanded=False,
-        ):
-            st.write(hit["text"])
+        st.metric("关键词召回率", report["keyword_recall"])
+        st.metric("耗时（秒）", report["elapsed_seconds"])
+        st.dataframe(report["rows"], use_container_width=True)
+        st.download_button(
+            "下载评测报告 JSON",
+            data=json.dumps(report, ensure_ascii=False, indent=2),
+            file_name="rag_eval_report.json",
+            mime="application/json",
+        )
