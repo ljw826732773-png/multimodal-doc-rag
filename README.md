@@ -5,7 +5,9 @@
 ## 当前功能
 
 - 上传 TXT / MD / PDF
+- 上传 PNG / JPG / JPEG / BMP / WEBP / TIF / TIFF 图片
 - 提取文档文本和页码
+- 使用 OCR 解析图片和扫描 PDF 页面
 - 将长文本切分为 chunk
 - 使用 `BAAI/bge-small-zh-v1.5` 生成 embedding
 - 使用 ChromaDB 本地向量库检索
@@ -81,6 +83,17 @@ DeepSeek 地址: https://api.deepseek.com
 $env:DEEPSEEK_API_KEY="你的 API Key"
 streamlit run app.py
 ```
+
+## OCR 和图片
+
+项目使用 `rapidocr-onnxruntime` 做本地 OCR，支持：
+
+```text
+图片 OCR
+扫描 PDF 的空文本页面 OCR
+```
+
+上传图片或扫描件时，保持侧边栏的 `启用 OCR（图片/扫描 PDF）` 勾选即可。OCR 会把识别出的文字作为文档内容写入向量库，后续可以继续用 RAG 提问。
 
 ## 检索与重排
 

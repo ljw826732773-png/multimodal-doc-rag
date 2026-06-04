@@ -34,14 +34,18 @@ def get_store() -> DocumentVectorStore:
 
 
 st.title("智能文档理解与知识问答系统")
-st.caption("第 1 版：先跑通 RAG 闭环，支持 TXT / MD / PDF 的解析、切分、向量检索与引用展示。")
+st.caption("支持文本 PDF、扫描件 OCR、图片 OCR、RAG 检索、重排、DeepSeek 生成与引用溯源。")
 
 store = get_store()
 
 with st.sidebar:
     st.header("知识库")
     st.write(f"当前 chunk 数：**{store.count()}**")
-    uploaded_file = st.file_uploader("上传文档", type=["txt", "md", "pdf"])
+    uploaded_file = st.file_uploader(
+        "上传文档或图片",
+        type=["txt", "md", "pdf", "png", "jpg", "jpeg", "bmp", "webp", "tif", "tiff"],
+    )
+    enable_ocr = st.checkbox("启用 OCR（图片/扫描 PDF）", value=True)
     chunk_size = st.slider("Chunk 大小", min_value=300, max_value=1500, value=800, step=100)
     overlap = st.slider("Overlap", min_value=0, max_value=300, value=120, step=20)
 
@@ -75,7 +79,7 @@ with st.sidebar:
     if st.button("加载示例文档"):
         with st.spinner("正在加载 examples/sample.txt ..."):
             sample_path = ROOT_DIR / "examples" / "sample.txt"
-            pages = load_document(sample_path)
+            pages = load_document(sample_path, enable_ocr=False)
             chunks = split_pages(pages, chunk_size=chunk_size, overlap=overlap)
             count = store.add_chunks(chunks)
 
@@ -84,7 +88,7 @@ with st.sidebar:
     if uploaded_file and st.button("解析并建立索引", type="primary"):
         with st.spinner("正在解析文档并写入向量库..."):
             file_path = save_uploaded_file(uploaded_file)
-            pages = load_document(file_path)
+            pages = load_document(file_path, enable_ocr=enable_ocr)
             chunks = split_pages(pages, chunk_size=chunk_size, overlap=overlap)
             count = store.add_chunks(chunks)
 
