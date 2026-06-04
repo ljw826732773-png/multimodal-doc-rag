@@ -1,0 +1,14 @@
+[
+  {
+    "question": "What does RAG do when a user asks a question?",
+    "expected_keywords": ["embeds", "retrieves", "chunks", "language model"]
+  },
+  {
+    "question": "Why are citations useful in a document question answering system?",
+    "expected_keywords": ["verify", "answer", "came from"]
+  },
+  {
+    "question": "What can multimodal document understanding process before indexing?",
+    "expected_keywords": ["scanned pages", "screenshots", "charts", "images"]
+  }
+]

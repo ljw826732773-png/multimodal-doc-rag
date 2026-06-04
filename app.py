@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.document_loader import load_document
 from src.rag_chain import build_llm_answer
+from src.reranker import rerank_hits
 from src.text_splitter import split_pages
 from src.vector_store import DocumentVectorStore
 
@@ -99,10 +100,16 @@ with left:
         placeholder="例如：这篇文档主要解决什么问题？",
     )
     top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
+    fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
+    use_rerank = st.checkbox("启用轻量重排", value=True)
 
     if st.button("检索并回答", type="primary", disabled=not question.strip()):
         with st.spinner("正在检索相关片段并生成答案..."):
-            hits = store.search(question, top_k=top_k)
+            hits = store.search(question, top_k=fetch_k)
+            if use_rerank:
+                hits = rerank_hits(question, hits, top_k=top_k)
+            else:
+                hits = hits[:top_k]
             st.session_state["last_hits"] = hits
             st.session_state["last_answer"] = build_llm_answer(
                 question,

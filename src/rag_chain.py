@@ -8,11 +8,14 @@ def build_retrieval_answer(question: str, contexts: list[dict]) -> str:
         return "没有在当前知识库中检索到相关内容。"
 
     lines = [
-        "我先给出基于检索片段的回答草稿。当前没有启用生成式大模型，所以这里会把最相关的证据整理出来。",
+        "当前没有启用生成式大模型，先展示检索到的依据。",
         "",
         f"问题：{question}",
         "",
-        "最相关依据：",
+        "结论：",
+        "请启用 DeepSeek API 后生成完整答案；当前只能展示最相关的文档片段。",
+        "",
+        "依据：",
     ]
 
     for index, item in enumerate(contexts[:3], start=1):
@@ -27,7 +30,8 @@ def build_retrieval_answer(question: str, contexts: list[dict]) -> str:
     lines.extend(
         [
             "",
-            "学习提示：这一步对应 RAG 里的 Retrieve，也就是先找资料。启用 DeepSeek 或 Ollama 后，会把这些片段作为上下文交给模型生成自然语言答案。",
+            "引用来源：",
+            "见右侧命中的原文片段。启用 DeepSeek 或 Ollama 后，这些片段会作为上下文交给模型生成自然语言答案。",
         ]
     )
     return "\n".join(lines)
@@ -78,11 +82,17 @@ def build_rag_prompt(question: str, contexts: list[dict]) -> str:
         )
 
     joined_evidence = "\n\n".join(evidence)
-    return f"""你是一个严谨的文档问答助手。
+    return f"""你是一个严谨的文档问答助手，任务是基于检索到的资料回答用户问题。
 
-请只根据给定资料回答问题，不要编造资料中没有的信息。
-如果资料中没有答案，请直接说“根据当前文档无法确定”。
-回答要清晰、简洁，并在关键结论后标注引用编号，例如：[1]。
+必须遵守：
+1. 只根据给定资料回答，不要编造资料中没有的信息。
+2. 如果资料中没有答案，直接说“根据当前文档无法确定”。
+3. 关键结论后标注引用编号，例如：[1]。
+4. 输出使用以下结构：
+   结论：
+   依据：
+   引用来源：
+   不确定信息：
 
 资料：
 {joined_evidence}

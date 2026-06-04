@@ -6,5 +6,6 @@ __pycache__/
 data/uploads/*
 data/chroma/*
 data/test_chroma/*
+data/eval_chroma/*
 
 !.gitkeep

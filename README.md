@@ -9,7 +9,10 @@
 - 将长文本切分为 chunk
 - 使用 `BAAI/bge-small-zh-v1.5` 生成 embedding
 - 使用 ChromaDB 本地向量库检索
-- 展示回答草稿和引用来源
+- 支持 DeepSeek API 生成结构化答案
+- 支持轻量 rerank，对召回片段进行二次排序
+- 展示回答和引用来源
+- 提供基础评测脚本
 
 ## 快速启动
 
@@ -78,3 +81,24 @@ DeepSeek 地址: https://api.deepseek.com
 $env:DEEPSEEK_API_KEY="你的 API Key"
 streamlit run app.py
 ```
+
+## 检索与重排
+
+页面中有两个检索参数：
+
+```text
+Top-K: 最终交给模型的片段数量
+Fetch-K: 先从向量库召回的候选片段数量
+```
+
+启用轻量重排后，系统会先召回更多片段，再结合向量相似度和关键词重合度做二次排序。这个版本的 rerank 是轻量实现，后续可以替换为 `bge-reranker` 这类专门的重排模型。
+
+## 评测
+
+运行基础评测：
+
+```bash
+python scripts/run_eval.py --rerank
+```
+
+评测脚本会输出问题数、关键词召回率、耗时和每个问题命中的 top source。后续可以扩展为更完整的准确率、召回率和延迟对比实验。
