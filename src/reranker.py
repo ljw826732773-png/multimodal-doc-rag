@@ -24,6 +24,10 @@ def rerank_hits(question: str, hits: list[dict], top_k: int) -> list[dict]:
     return sorted(reranked, key=lambda item: item["rerank_score"], reverse=True)[:top_k]
 
 
+def lexical_similarity(left: str, right: str) -> float:
+    return _cosine(_terms(left), _terms(right))
+
+
 def _terms(text: str) -> Counter[str]:
     normalized = text.lower()
     words = re.findall(r"[a-z0-9]+", normalized)

@@ -19,6 +19,7 @@ def run_retrieval_eval(
     top_k: int = 3,
     fetch_k: int = 8,
     use_rerank: bool = True,
+    retrieval_mode: str = "vector",
 ) -> dict[str, Any]:
     document_path = Path(document_path)
     questions_path = Path(questions_path)
@@ -36,7 +37,15 @@ def run_retrieval_eval(
     for item in questions:
         question = item["question"]
         expected_keywords = item["expected_keywords"]
-        hits = store.search(question, top_k=fetch_k)
+        if retrieval_mode == "hybrid":
+            hits = store.search_hybrid(
+                question,
+                top_k=fetch_k,
+                vector_k=fetch_k,
+                keyword_k=fetch_k,
+            )
+        else:
+            hits = store.search(question, top_k=fetch_k)
         if use_rerank:
             hits = rerank_hits(question, hits, top_k=top_k)
         else:
@@ -69,6 +78,7 @@ def run_retrieval_eval(
         "top_k": top_k,
         "fetch_k": fetch_k,
         "rerank": use_rerank,
+        "retrieval_mode": retrieval_mode,
         "keyword_recall": round(keyword_hits / keyword_total, 4) if keyword_total else 0,
         "elapsed_seconds": round(elapsed, 3),
         "rows": rows,

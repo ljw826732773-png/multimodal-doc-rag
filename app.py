@@ -149,11 +149,20 @@ with tab_qa:
         )
         top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
         fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
+        retrieval_label = st.segmented_control("检索模式", ["向量检索", "混合检索"], default="混合检索")
         use_rerank = st.checkbox("启用轻量重排", value=True)
 
         if st.button("检索并回答", type="primary", disabled=not question.strip()):
             with st.spinner("正在检索相关片段并生成答案..."):
-                hits = store.search(question, top_k=fetch_k)
+                if retrieval_label == "混合检索":
+                    hits = store.search_hybrid(
+                        question,
+                        top_k=fetch_k,
+                        vector_k=fetch_k,
+                        keyword_k=fetch_k,
+                    )
+                else:
+                    hits = store.search(question, top_k=fetch_k)
                 if use_rerank:
                     hits = rerank_hits(question, hits, top_k=top_k)
                 else:
@@ -189,6 +198,7 @@ with tab_eval:
     st.write("使用示例文档和问题集评测检索片段是否覆盖标准关键词。")
     eval_top_k = st.slider("评测 Top-K", min_value=1, max_value=10, value=3)
     eval_fetch_k = st.slider("评测 Fetch-K", min_value=eval_top_k, max_value=20, value=8)
+    eval_retrieval_label = st.segmented_control("评测检索模式", ["向量检索", "混合检索"], default="混合检索")
     eval_rerank = st.checkbox("评测启用轻量重排", value=True)
 
     if st.button("运行示例评测", type="primary"):
@@ -200,6 +210,7 @@ with tab_eval:
                 top_k=eval_top_k,
                 fetch_k=eval_fetch_k,
                 use_rerank=eval_rerank,
+                retrieval_mode="hybrid" if eval_retrieval_label == "混合检索" else "vector",
             )
         st.metric("关键词召回率", report["keyword_recall"])
         st.metric("耗时（秒）", report["elapsed_seconds"])

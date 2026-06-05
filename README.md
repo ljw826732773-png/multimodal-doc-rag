@@ -12,6 +12,7 @@
 - 将长文本切分为 chunk
 - 使用 `BAAI/bge-small-zh-v1.5` 生成 embedding
 - 使用 ChromaDB 本地向量库做语义检索
+- 支持向量检索和 Hybrid Search
 - 支持轻量 rerank，对召回片段进行二次排序
 - 支持 DeepSeek API 生成结构化答案
 - 展示答案引用来源
@@ -105,6 +106,13 @@ Top-K: 最终交给模型的片段数量
 Fetch-K: 先从向量库召回的候选片段数量
 ```
 
+检索模式支持：
+
+```text
+向量检索: 使用 embedding 相似度召回片段
+混合检索: 合并向量相似度和关键词匹配结果
+```
+
 启用轻量重排后，系统会先召回更多片段，再结合向量相似度和关键词重合度做二次排序。当前 rerank 是轻量实现，后续可以替换为 `bge-reranker` 这类专门的重排模型。
 
 ## 评测
@@ -113,6 +121,12 @@ Fetch-K: 先从向量库召回的候选片段数量
 
 ```bash
 python scripts/run_eval.py --rerank
+```
+
+也可以评测混合检索：
+
+```bash
+python scripts/run_eval.py --rerank --retrieval-mode hybrid
 ```
 
 评测脚本会输出：
