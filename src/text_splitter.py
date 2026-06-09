@@ -9,6 +9,7 @@ from src.document_loader import PageText
 class Chunk:
     id: str
     source: str
+    file_id: str
     page: int
     chunk_index: int
     text: str
@@ -39,6 +40,7 @@ def split_pages(
                     Chunk(
                         id=chunk_id,
                         source=page.source,
+                        file_id=page.source,
                         page=page.page,
                         chunk_index=chunk_index,
                         text=text,

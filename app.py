@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 
-from src.document_loader import load_document
-from src.document_loader import IMAGE_SUFFIXES
-from src.document_loader import PageText
+from src.document_loader import IMAGE_SUFFIXES, PageText, load_document
 from src.evaluation import run_retrieval_eval
 from src.rag_chain import build_llm_answer
 from src.reranker import rerank_hits
@@ -39,8 +38,28 @@ def get_store() -> DocumentVectorStore:
     return DocumentVectorStore(CHROMA_DIR)
 
 
+def add_history(question: str, answer: str, hits: list[dict]) -> None:
+    st.session_state.setdefault("qa_history", [])
+    st.session_state["qa_history"].append(
+        {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "question": question,
+            "answer": answer,
+            "citations": [
+                {
+                    "source": hit.get("source"),
+                    "page": hit.get("page"),
+                    "chunk_index": hit.get("chunk_index"),
+                    "score": round(float(hit.get("score", 0.0)), 4),
+                }
+                for hit in hits
+            ],
+        }
+    )
+
+
 st.title("智能文档理解与知识问答系统")
-st.caption("支持文本 PDF、扫描件 OCR、图片 OCR、RAG 检索、重排、DeepSeek 生成与引用溯源。")
+st.caption("支持文档解析、OCR、图片语义描述、Hybrid Search、重排、DeepSeek 生成与引用溯源。")
 
 store = get_store()
 
@@ -100,7 +119,7 @@ with st.sidebar:
         help="可填写任意 OpenAI-compatible 视觉模型接口；DeepSeek 当前主要用于文本问答。",
     )
 
-tab_qa, tab_eval = st.tabs(["问答", "评测"])
+tab_qa, tab_kb, tab_history, tab_eval = st.tabs(["问答", "知识库管理", "问答历史", "评测"])
 
 with tab_qa:
     if st.button("加载示例文档"):
@@ -167,8 +186,7 @@ with tab_qa:
                     hits = rerank_hits(question, hits, top_k=top_k)
                 else:
                     hits = hits[:top_k]
-                st.session_state["last_hits"] = hits
-                st.session_state["last_answer"] = build_llm_answer(
+                answer = build_llm_answer(
                     question,
                     hits,
                     provider=llm_provider,
@@ -176,6 +194,9 @@ with tab_qa:
                     base_url=base_url,
                     api_key=api_key,
                 )
+                st.session_state["last_hits"] = hits
+                st.session_state["last_answer"] = answer
+                add_history(question, answer, hits)
 
         if "last_answer" in st.session_state:
             st.markdown("#### 回答")
@@ -192,6 +213,49 @@ with tab_qa:
                 expanded=False,
             ):
                 st.write(hit["text"])
+
+with tab_kb:
+    st.subheader("已索引文档")
+    documents = store.list_documents()
+    if not documents:
+        st.info("当前知识库为空。")
+    else:
+        st.dataframe(documents, use_container_width=True)
+        selected_file_id = st.selectbox(
+            "选择要删除的文档",
+            [doc["file_id"] for doc in documents],
+            format_func=lambda value: next(
+                (doc["source"] for doc in documents if doc["file_id"] == value),
+                value,
+            ),
+        )
+        if st.button("删除所选文档", type="primary"):
+            deleted = store.delete_document(selected_file_id)
+            st.success(f"已删除 {deleted} 个 chunk。")
+            st.rerun()
+
+with tab_history:
+    st.subheader("问答历史")
+    history = st.session_state.get("qa_history", [])
+    if not history:
+        st.info("当前还没有问答记录。")
+    else:
+        for item in reversed(history):
+            with st.expander(f"{item['time']} | {item['question']}", expanded=False):
+                st.write(item["answer"])
+                st.write("引用：")
+                st.json(item["citations"])
+
+        history_json = json.dumps(history, ensure_ascii=False, indent=2)
+        st.download_button(
+            "导出问答历史 JSON",
+            data=history_json,
+            file_name="qa_history.json",
+            mime="application/json",
+        )
+        if st.button("清空问答历史"):
+            st.session_state["qa_history"] = []
+            st.rerun()
 
 with tab_eval:
     st.subheader("检索评测")

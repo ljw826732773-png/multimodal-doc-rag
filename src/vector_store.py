@@ -27,6 +27,7 @@ class DocumentVectorStore:
         metadatas = [
             {
                 "source": chunk.source,
+                "file_id": chunk.file_id,
                 "page": chunk.page,
                 "chunk_index": chunk.chunk_index,
             }
@@ -62,6 +63,7 @@ class DocumentVectorStore:
                     "id": chunk_id,
                     "text": text,
                     "source": metadata.get("source"),
+                    "file_id": metadata.get("file_id", metadata.get("source")),
                     "page": metadata.get("page"),
                     "chunk_index": metadata.get("chunk_index"),
                     "score": max(0.0, 1.0 - float(distance)),
@@ -136,6 +138,7 @@ class DocumentVectorStore:
                     "id": chunk_id,
                     "text": text,
                     "source": metadata.get("source"),
+                    "file_id": metadata.get("file_id", metadata.get("source")),
                     "page": metadata.get("page"),
                     "chunk_index": metadata.get("chunk_index"),
                     "keyword_score": score,
@@ -144,3 +147,52 @@ class DocumentVectorStore:
             )
 
         return sorted(hits, key=lambda item: item["keyword_score"], reverse=True)[:top_k]
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        existing = self.collection.get(include=["metadatas"])
+        metadatas = existing.get("metadatas", [])
+        docs: dict[str, dict[str, Any]] = {}
+
+        for metadata in metadatas:
+            source = metadata.get("source", "unknown")
+            file_id = metadata.get("file_id", source)
+            page = int(metadata.get("page", 0) or 0)
+            item = docs.setdefault(
+                file_id,
+                {
+                    "file_id": file_id,
+                    "source": source,
+                    "chunks": 0,
+                    "pages": set(),
+                },
+            )
+            item["chunks"] += 1
+            if page:
+                item["pages"].add(page)
+
+        rows = []
+        for item in docs.values():
+            pages = sorted(item["pages"])
+            rows.append(
+                {
+                    "file_id": item["file_id"],
+                    "source": item["source"],
+                    "chunks": item["chunks"],
+                    "pages": len(pages),
+                }
+            )
+        return sorted(rows, key=lambda row: row["source"])
+
+    def delete_document(self, file_id: str) -> int:
+        existing = self.collection.get(include=["metadatas"])
+        ids = existing.get("ids", [])
+        metadatas = existing.get("metadatas", [])
+        delete_ids = [
+            chunk_id
+            for chunk_id, metadata in zip(ids, metadatas)
+            if metadata.get("file_id", metadata.get("source")) == file_id
+        ]
+        if not delete_ids:
+            return 0
+        self.collection.delete(ids=delete_ids)
+        return len(delete_ids)
