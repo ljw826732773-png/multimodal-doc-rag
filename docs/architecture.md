@@ -1,0 +1,89 @@
+# 系统架构
+
+本文档说明 Multimodal Doc RAG 的核心模块和数据流。
+
+## 模块划分
+
+```text
+app.py
+页面入口，负责上传、配置、问答、评测和结果展示。
+
+src/document_loader.py
+读取 TXT / MD / PDF / 图片，保留文件名、页码和文本内容。
+
+src/ocr.py
+使用 RapidOCR 识别图片和扫描 PDF 页面中的文字。
+
+src/vision_client.py
+可选调用 OpenAI-compatible 视觉模型，为图片和图表生成语义描述。
+
+src/text_splitter.py
+将长文本切分为 chunk，并保留 source、page、chunk_index 等 metadata。
+
+src/embeddings.py
+加载 embedding 模型，将文本和问题转换为向量。
+
+src/vector_store.py
+封装 ChromaDB，支持向量检索、关键词检索、Hybrid Search 和清空知识库。
+
+src/reranker.py
+实现轻量重排，结合向量相似度和词项重合度调整候选片段顺序。
+
+src/rag_chain.py
+构造 RAG prompt，并调用 DeepSeek、Ollama 或检索草稿模式生成答案。
+
+src/evaluation.py
+运行基础检索评测，计算关键词召回率和耗时。
+```
+
+## 数据流
+
+```mermaid
+flowchart TD
+    A["Upload TXT / PDF / Image"] --> B["Document Loader"]
+    B --> C["Text Extraction"]
+    B --> D["OCR"]
+    B --> E["Vision Description Optional"]
+    C --> F["Chunking"]
+    D --> F
+    E --> F
+    F --> G["Embedding"]
+    G --> H["ChromaDB"]
+    I["User Question"] --> J["Question Embedding"]
+    J --> K["Vector / Hybrid Retrieval"]
+    H --> K
+    K --> L["Lightweight Rerank"]
+    L --> M["RAG Prompt"]
+    M --> N["DeepSeek / LLM"]
+    N --> O["Answer"]
+    L --> P["Citations"]
+```
+
+## 检索策略
+
+系统目前提供两种检索模式：
+
+```text
+Vector Search
+使用 embedding 向量相似度召回语义相关片段。
+
+Hybrid Search
+合并向量相似度和关键词匹配结果，适合数字、字段名、专有名词和 OCR 文本。
+```
+
+检索后可以启用轻量 rerank，对候选片段进行二次排序。
+
+## 答案生成策略
+
+系统不会直接把用户问题发送给大模型，而是先检索相关片段，再构造包含资料和引用编号的 prompt。
+
+答案要求包含：
+
+```text
+结论
+依据
+引用来源
+不确定信息
+```
+
+如果资料中没有答案，模型应回答“根据当前文档无法确定”。
