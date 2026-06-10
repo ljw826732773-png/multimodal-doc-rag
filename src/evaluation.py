@@ -7,6 +7,7 @@ from typing import Any
 
 from src.document_loader import load_document
 from src.rag_chain import build_llm_answer
+from src.query_router import route_query
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
 from src.vector_store import DocumentVectorStore
@@ -20,6 +21,7 @@ def run_retrieval_eval(
     fetch_k: int = 8,
     use_rerank: bool = True,
     retrieval_mode: str = "vector",
+    use_router: bool = False,
 ) -> dict[str, Any]:
     document_path = Path(document_path)
     questions_path = Path(questions_path)
@@ -37,19 +39,25 @@ def run_retrieval_eval(
     for item in questions:
         question = item["question"]
         expected_keywords = item["expected_keywords"]
-        if retrieval_mode == "hybrid":
+        route = route_query(question) if use_router else None
+        effective_mode = route.retrieval_mode if route else retrieval_mode
+        effective_rerank = route.use_rerank if route else use_rerank
+        effective_top_k = route.top_k if route else top_k
+        effective_fetch_k = route.fetch_k if route else fetch_k
+
+        if effective_mode == "hybrid":
             hits = store.search_hybrid(
                 question,
-                top_k=fetch_k,
-                vector_k=fetch_k,
-                keyword_k=fetch_k,
+                top_k=effective_fetch_k,
+                vector_k=effective_fetch_k,
+                keyword_k=effective_fetch_k,
             )
         else:
-            hits = store.search(question, top_k=fetch_k)
-        if use_rerank:
-            hits = rerank_hits(question, hits, top_k=top_k)
+            hits = store.search(question, top_k=effective_fetch_k)
+        if effective_rerank:
+            hits = rerank_hits(question, hits, top_k=effective_top_k)
         else:
-            hits = hits[:top_k]
+            hits = hits[:effective_top_k]
 
         answer = build_llm_answer(question, hits, provider="disabled")
         retrieved_context = "\n".join(hit.get("text", "") for hit in hits)
@@ -66,6 +74,8 @@ def run_retrieval_eval(
                 "answer_preview": answer[:160],
                 "top_source": hits[0]["source"] if hits else None,
                 "top_score": round(hits[0]["score"], 4) if hits else 0,
+                "route_intent": route.intent if route else None,
+                "route_reason": route.reason if route else None,
             }
         )
 
@@ -79,6 +89,7 @@ def run_retrieval_eval(
         "fetch_k": fetch_k,
         "rerank": use_rerank,
         "retrieval_mode": retrieval_mode,
+        "use_router": use_router,
         "keyword_recall": round(keyword_hits / keyword_total, 4) if keyword_total else 0,
         "elapsed_seconds": round(elapsed, 3),
         "rows": rows,

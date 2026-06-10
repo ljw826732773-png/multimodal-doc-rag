@@ -9,6 +9,7 @@ import streamlit as st
 
 from src.document_loader import IMAGE_SUFFIXES, PageText, load_document
 from src.evaluation import run_retrieval_eval
+from src.query_router import route_query
 from src.rag_chain import build_llm_answer
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
@@ -166,6 +167,7 @@ with tab_qa:
             height=120,
             placeholder="例如：这篇文档主要解决什么问题？",
         )
+        auto_route = st.checkbox("自动选择检索策略", value=True)
         top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
         fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
         retrieval_label = st.segmented_control("检索模式", ["向量检索", "混合检索"], default="混合检索")
@@ -173,19 +175,30 @@ with tab_qa:
 
         if st.button("检索并回答", type="primary", disabled=not question.strip()):
             with st.spinner("正在检索相关片段并生成答案..."):
-                if retrieval_label == "混合检索":
+                route = route_query(question) if auto_route else None
+                effective_mode = route.retrieval_mode if route else ("hybrid" if retrieval_label == "混合检索" else "vector")
+                effective_top_k = route.top_k if route else top_k
+                effective_fetch_k = route.fetch_k if route else fetch_k
+                effective_rerank = route.use_rerank if route else use_rerank
+                if route:
+                    st.info(
+                        f"自动策略：{route.intent} | {route.retrieval_mode} | "
+                        f"Top-K={route.top_k}, Fetch-K={route.fetch_k}。{route.reason}"
+                    )
+
+                if effective_mode == "hybrid":
                     hits = store.search_hybrid(
                         question,
-                        top_k=fetch_k,
-                        vector_k=fetch_k,
-                        keyword_k=fetch_k,
+                        top_k=effective_fetch_k,
+                        vector_k=effective_fetch_k,
+                        keyword_k=effective_fetch_k,
                     )
                 else:
-                    hits = store.search(question, top_k=fetch_k)
-                if use_rerank:
-                    hits = rerank_hits(question, hits, top_k=top_k)
+                    hits = store.search(question, top_k=effective_fetch_k)
+                if effective_rerank:
+                    hits = rerank_hits(question, hits, top_k=effective_top_k)
                 else:
-                    hits = hits[:top_k]
+                    hits = hits[:effective_top_k]
                 answer = build_llm_answer(
                     question,
                     hits,
@@ -262,6 +275,7 @@ with tab_eval:
     st.write("使用示例文档和问题集评测检索片段是否覆盖标准关键词。")
     eval_top_k = st.slider("评测 Top-K", min_value=1, max_value=10, value=3)
     eval_fetch_k = st.slider("评测 Fetch-K", min_value=eval_top_k, max_value=20, value=8)
+    eval_auto_route = st.checkbox("评测启用自动策略", value=True)
     eval_retrieval_label = st.segmented_control("评测检索模式", ["向量检索", "混合检索"], default="混合检索")
     eval_rerank = st.checkbox("评测启用轻量重排", value=True)
 
@@ -275,6 +289,7 @@ with tab_eval:
                 fetch_k=eval_fetch_k,
                 use_rerank=eval_rerank,
                 retrieval_mode="hybrid" if eval_retrieval_label == "混合检索" else "vector",
+                use_router=eval_auto_route,
             )
         st.metric("关键词召回率", report["keyword_recall"])
         st.metric("耗时（秒）", report["elapsed_seconds"])

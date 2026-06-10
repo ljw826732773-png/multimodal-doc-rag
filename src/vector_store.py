@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
-import chromadb
+import numpy as np
 
 from src.embeddings import embed_texts
 from src.reranker import lexical_similarity
@@ -12,64 +13,50 @@ from src.text_splitter import Chunk
 
 class DocumentVectorStore:
     def __init__(self, persist_dir: str | Path, collection_name: str = "documents") -> None:
-        self.client = chromadb.PersistentClient(path=str(persist_dir))
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+        self.persist_dir = Path(persist_dir)
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.persist_dir / f"{collection_name}.json"
+        if not self.path.exists():
+            self._save([])
 
     def add_chunks(self, chunks: list[Chunk]) -> int:
         if not chunks:
             return 0
 
-        ids = [chunk.id for chunk in chunks]
+        records = self._load()
+        by_id = {record["id"]: record for record in records}
         texts = [chunk.text for chunk in chunks]
-        metadatas = [
-            {
-                "source": chunk.source,
-                "file_id": chunk.file_id,
-                "page": chunk.page,
-                "chunk_index": chunk.chunk_index,
-            }
-            for chunk in chunks
-        ]
         embeddings = embed_texts(texts)
 
-        self.collection.upsert(
-            ids=ids,
-            documents=texts,
-            metadatas=metadatas,
-            embeddings=embeddings,
-        )
+        for chunk, embedding in zip(chunks, embeddings):
+            by_id[chunk.id] = {
+                "id": chunk.id,
+                "text": chunk.text,
+                "embedding": embedding,
+                "metadata": {
+                    "source": chunk.source,
+                    "file_id": chunk.file_id,
+                    "page": chunk.page,
+                    "chunk_index": chunk.chunk_index,
+                },
+            }
+
+        self._save(list(by_id.values()))
         return len(chunks)
 
     def search(self, question: str, top_k: int = 5) -> list[dict[str, Any]]:
-        question_embedding = embed_texts([question])[0]
-        result = self.collection.query(
-            query_embeddings=[question_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        records = self._load()
+        if not records:
+            return []
 
+        question_embedding = np.asarray(embed_texts([question])[0], dtype=np.float32)
         hits: list[dict[str, Any]] = []
-        documents = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
-        ids = result.get("ids", [[]])[0]
+        for record in records:
+            embedding = np.asarray(record["embedding"], dtype=np.float32)
+            score = _cosine(question_embedding, embedding)
+            hits.append(self._record_to_hit(record, score=score))
 
-        for chunk_id, text, metadata, distance in zip(ids, documents, metadatas, distances):
-            hits.append(
-                {
-                    "id": chunk_id,
-                    "text": text,
-                    "source": metadata.get("source"),
-                    "file_id": metadata.get("file_id", metadata.get("source")),
-                    "page": metadata.get("page"),
-                    "chunk_index": metadata.get("chunk_index"),
-                    "score": max(0.0, 1.0 - float(distance)),
-                }
-            )
-        return hits
+        return sorted(hits, key=lambda item: item["score"], reverse=True)[:top_k]
 
     def search_hybrid(
         self,
@@ -112,48 +99,18 @@ class DocumentVectorStore:
         return sorted(results, key=lambda item: item["hybrid_score"], reverse=True)[:top_k]
 
     def count(self) -> int:
-        return self.collection.count()
+        return len(self._load())
 
     def clear(self) -> int:
-        existing = self.collection.get(include=[])
-        ids = existing.get("ids", [])
-        if not ids:
-            return 0
-        self.collection.delete(ids=ids)
-        return len(ids)
-
-    def _keyword_search(self, question: str, top_k: int = 5) -> list[dict[str, Any]]:
-        existing = self.collection.get(include=["documents", "metadatas"])
-        ids = existing.get("ids", [])
-        documents = existing.get("documents", [])
-        metadatas = existing.get("metadatas", [])
-        hits: list[dict[str, Any]] = []
-
-        for chunk_id, text, metadata in zip(ids, documents, metadatas):
-            score = lexical_similarity(question, text or "")
-            if score <= 0:
-                continue
-            hits.append(
-                {
-                    "id": chunk_id,
-                    "text": text,
-                    "source": metadata.get("source"),
-                    "file_id": metadata.get("file_id", metadata.get("source")),
-                    "page": metadata.get("page"),
-                    "chunk_index": metadata.get("chunk_index"),
-                    "keyword_score": score,
-                    "score": score,
-                }
-            )
-
-        return sorted(hits, key=lambda item: item["keyword_score"], reverse=True)[:top_k]
+        records = self._load()
+        self._save([])
+        return len(records)
 
     def list_documents(self) -> list[dict[str, Any]]:
-        existing = self.collection.get(include=["metadatas"])
-        metadatas = existing.get("metadatas", [])
         docs: dict[str, dict[str, Any]] = {}
 
-        for metadata in metadatas:
+        for record in self._load():
+            metadata = record["metadata"]
             source = metadata.get("source", "unknown")
             file_id = metadata.get("file_id", source)
             page = int(metadata.get("page", 0) or 0)
@@ -172,27 +129,62 @@ class DocumentVectorStore:
 
         rows = []
         for item in docs.values():
-            pages = sorted(item["pages"])
             rows.append(
                 {
                     "file_id": item["file_id"],
                     "source": item["source"],
                     "chunks": item["chunks"],
-                    "pages": len(pages),
+                    "pages": len(item["pages"]),
                 }
             )
         return sorted(rows, key=lambda row: row["source"])
 
     def delete_document(self, file_id: str) -> int:
-        existing = self.collection.get(include=["metadatas"])
-        ids = existing.get("ids", [])
-        metadatas = existing.get("metadatas", [])
-        delete_ids = [
-            chunk_id
-            for chunk_id, metadata in zip(ids, metadatas)
-            if metadata.get("file_id", metadata.get("source")) == file_id
+        records = self._load()
+        kept = [
+            record
+            for record in records
+            if record["metadata"].get("file_id", record["metadata"].get("source")) != file_id
         ]
-        if not delete_ids:
-            return 0
-        self.collection.delete(ids=delete_ids)
-        return len(delete_ids)
+        deleted = len(records) - len(kept)
+        self._save(kept)
+        return deleted
+
+    def _keyword_search(self, question: str, top_k: int = 5) -> list[dict[str, Any]]:
+        hits: list[dict[str, Any]] = []
+
+        for record in self._load():
+            score = lexical_similarity(question, record.get("text", ""))
+            if score <= 0:
+                continue
+            hit = self._record_to_hit(record, score=score)
+            hit["keyword_score"] = score
+            hits.append(hit)
+
+        return sorted(hits, key=lambda item: item["keyword_score"], reverse=True)[:top_k]
+
+    def _record_to_hit(self, record: dict[str, Any], score: float) -> dict[str, Any]:
+        metadata = record["metadata"]
+        return {
+            "id": record["id"],
+            "text": record["text"],
+            "source": metadata.get("source"),
+            "file_id": metadata.get("file_id", metadata.get("source")),
+            "page": metadata.get("page"),
+            "chunk_index": metadata.get("chunk_index"),
+            "score": max(0.0, float(score)),
+        }
+
+    def _load(self) -> list[dict[str, Any]]:
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def _save(self, records: list[dict[str, Any]]) -> None:
+        self.path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+
+
+def _cosine(left: np.ndarray, right: np.ndarray) -> float:
+    left_norm = float(np.linalg.norm(left))
+    right_norm = float(np.linalg.norm(right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return float(np.dot(left, right) / (left_norm * right_norm))

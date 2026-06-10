@@ -63,11 +63,14 @@ PNG / JPG / JPEG / BMP / WEBP / TIF / TIFF
 在 `问答` 标签页输入问题，调整：
 
 ```text
+自动选择检索策略
 Top-K
 Fetch-K
 检索模式
 是否启用轻量重排
 ```
+
+开启 `自动选择检索策略` 后，系统会根据问题自动选择检索模式、Top-K、Fetch-K 和 rerank 设置。关闭后，可以手动选择向量检索或混合检索。
 
 然后点击：
 
@@ -111,6 +114,7 @@ pages
 ```bash
 python scripts/run_eval.py --rerank
 python scripts/run_eval.py --rerank --retrieval-mode hybrid
+python scripts/run_eval.py --router
 ```
 
 评测结果会输出关键词召回率、耗时和每个问题命中的 top source。

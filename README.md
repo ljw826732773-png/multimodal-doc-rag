@@ -11,8 +11,9 @@
 - 可选接入 OpenAI-compatible 视觉模型，为图片和图表生成语义描述
 - 使用 chunk 切分长文档
 - 使用 `BAAI/bge-small-zh-v1.5` 生成 embedding
-- 使用 ChromaDB 本地向量库做语义检索
+- 使用轻量本地 JSON 向量库做语义检索
 - 支持向量检索和 Hybrid Search
+- 支持 Query Router 自动选择检索策略
 - 支持轻量 rerank，对召回片段进行二次排序
 - 支持 DeepSeek API 生成结构化答案
 - 展示答案引用来源
@@ -49,7 +50,7 @@ flowchart LR
     B --> D["Chunking"]
     C --> D
     D --> E["Embedding"]
-    E --> F["ChromaDB"]
+    E --> F["Local JSON Vector Store"]
     F --> G["Vector / Hybrid Retrieval"]
     G --> H["Lightweight Rerank"]
     H --> I["DeepSeek / LLM"]
@@ -119,6 +120,14 @@ Fetch-K: 先从向量库召回的候选片段数量
 混合检索: 合并向量相似度和关键词匹配结果
 ```
 
+开启 `自动选择检索策略` 后，系统会根据问题类型自动选择检索模式和参数：
+
+```text
+总结类问题 -> 偏向向量检索
+事实/数字/字段类问题 -> 偏向混合检索
+图片/图表/表格类问题 -> 偏向混合检索并扩大召回
+```
+
 启用轻量重排后，系统会先召回更多片段，再结合向量相似度和关键词重合度做二次排序。当前 rerank 是轻量实现，后续可以替换为 `bge-reranker` 这类专门的重排模型。
 
 ## 评测
@@ -135,12 +144,19 @@ python scripts/run_eval.py --rerank
 python scripts/run_eval.py --rerank --retrieval-mode hybrid
 ```
 
+评测自动策略：
+
+```bash
+python scripts/run_eval.py --router
+```
+
 评测脚本会输出：
 
 - 问题数
 - Top-K / Fetch-K
 - 是否启用 rerank
 - 检索模式
+- 是否启用 Query Router
 - 关键词召回率
 - 总耗时
 - 每个问题命中的 top source 和相似度
@@ -157,7 +173,7 @@ python scripts/run_eval.py --rerank --retrieval-mode hybrid
 - PyMuPDF
 - RapidOCR
 - Sentence Transformers
-- ChromaDB
+- Local JSON Vector Store
 - DeepSeek API
 
 ## 后续计划

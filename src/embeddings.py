@@ -5,14 +5,15 @@ import hashlib
 import math
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 
 
 @lru_cache(maxsize=2)
-def get_embedding_model(model_name: str = DEFAULT_EMBEDDING_MODEL) -> SentenceTransformer:
+def get_embedding_model(model_name: str = DEFAULT_EMBEDDING_MODEL):
+    from sentence_transformers import SentenceTransformer
+
     return SentenceTransformer(model_name)
 
 

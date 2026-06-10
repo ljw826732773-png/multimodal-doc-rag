@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--fetch-k", type=int, default=8)
     parser.add_argument("--rerank", action="store_true")
     parser.add_argument("--retrieval-mode", choices=["vector", "hybrid"], default="vector")
+    parser.add_argument("--router", action="store_true")
     args = parser.parse_args()
 
     report = run_retrieval_eval(
@@ -29,6 +30,7 @@ def main() -> None:
         fetch_k=args.fetch_k,
         use_rerank=args.rerank,
         retrieval_mode=args.retrieval_mode,
+        use_router=args.router,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 

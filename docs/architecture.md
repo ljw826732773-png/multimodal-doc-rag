@@ -24,10 +24,13 @@ src/embeddings.py
 加载 embedding 模型，将文本和问题转换为向量。
 
 src/vector_store.py
-封装 ChromaDB，支持向量检索、关键词检索、Hybrid Search 和清空知识库。
+封装轻量本地 JSON 向量库，支持向量检索、关键词检索、Hybrid Search、按文件删除和清空知识库。
 
 src/reranker.py
 实现轻量重排，结合向量相似度和词项重合度调整候选片段顺序。
+
+src/query_router.py
+根据问题类型自动选择检索模式、Top-K、Fetch-K 和是否启用 rerank。
 
 src/rag_chain.py
 构造 RAG prompt，并调用 DeepSeek、Ollama 或检索草稿模式生成答案。
@@ -48,8 +51,9 @@ flowchart TD
     D --> F
     E --> F
     F --> G["Embedding"]
-    G --> H["ChromaDB"]
-    I["User Question"] --> J["Question Embedding"]
+    G --> H["Local JSON Vector Store"]
+    I["User Question"] --> Q["Query Router"]
+    Q --> J["Question Embedding"]
     J --> K["Vector / Hybrid Retrieval"]
     H --> K
     K --> L["Lightweight Rerank"]
@@ -72,6 +76,19 @@ Hybrid Search
 ```
 
 检索后可以启用轻量 rerank，对候选片段进行二次排序。
+
+## Query Router
+
+Query Router 会根据问题文本做轻量规则判断：
+
+```text
+summary: 总结、概括、主要内容类问题
+fact_lookup: 编号、日期、金额、数字、字段类问题
+visual_or_table_lookup: 图片、图表、截图、表格类问题
+general_qa: 默认问答
+```
+
+不同意图会映射到不同的检索策略。例如事实类和图表类问题默认使用 Hybrid Search，总结类问题默认使用 Vector Search。
 
 ## 答案生成策略
 
