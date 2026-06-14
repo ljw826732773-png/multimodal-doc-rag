@@ -24,7 +24,10 @@ src/embeddings.py
 加载 embedding 模型，将文本和问题转换为向量。
 
 src/vector_store.py
-封装轻量本地 JSON 向量库，支持向量检索、关键词检索、Hybrid Search、按文件删除和清空知识库。
+封装轻量本地 JSON 向量库，支持向量检索、BM25 关键词检索、Hybrid Search、MMR 多样性召回、按文件删除和清空知识库。
+
+src/retrieval_algorithms.py
+实现 BM25 关键词检索、分数归一化和 MMR 多样性选择。
 
 src/reranker.py
 实现轻量重排，结合向量相似度和词项重合度调整候选片段顺序。
@@ -60,11 +63,12 @@ flowchart TD
     G --> H["Local JSON Vector Store"]
     I["User Question"] --> Q["Query Router"]
     Q --> J["Question Embedding"]
-    J --> K["Vector / Hybrid Retrieval"]
+    J --> K["Vector / BM25 Hybrid Retrieval"]
     H --> K
     S["Conversation History"] --> Q
     S --> M
-    K --> L["Lightweight Rerank"]
+    K --> D2["MMR Diversity Selection Optional"]
+    D2 --> L["Lightweight Rerank"]
     L --> M["RAG Prompt"]
     M --> N["DeepSeek / LLM"]
     N --> O["Answer"]
@@ -82,8 +86,12 @@ Vector Search
 使用 embedding 向量相似度召回语义相关片段。
 
 Hybrid Search
-合并向量相似度和关键词匹配结果，适合数字、字段名、专有名词和 OCR 文本。
+合并向量相似度和 BM25 关键词检索结果，适合数字、字段名、专有名词和 OCR 文本。
 ```
+
+BM25 会根据词项频率、逆文档频率和文档长度归一化计算关键词相关性，避免把“出现过关键词”简单等同于“更相关”。
+
+检索阶段可以启用 MMR 多样性召回，在相关性和片段差异之间做平衡，减少多个相似 chunk 重复占用上下文窗口。
 
 检索后可以启用轻量 rerank，对候选片段进行二次排序。
 

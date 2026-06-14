@@ -12,9 +12,10 @@
 - 使用 chunk 切分长文档
 - 使用 `BAAI/bge-small-zh-v1.5` 生成 embedding
 - 使用轻量本地 JSON 向量库做语义检索
-- 支持向量检索和 Hybrid Search
+- 支持向量检索和 Hybrid Search，关键词检索部分使用 BM25
 - 支持 Query Router 自动选择检索策略
 - 支持多轮上下文，将最近问答用于追问消歧和检索增强
+- 支持 MMR 多样性召回，减少重复片段挤占上下文窗口
 - 支持轻量 rerank，对召回片段进行二次排序
 - 支持 DeepSeek API 生成结构化答案
 - 展示答案引用来源
@@ -53,7 +54,7 @@ flowchart LR
     C --> D
     D --> E["Embedding"]
     E --> F["Local JSON Vector Store"]
-    F --> G["Vector / Hybrid Retrieval"]
+    F --> G["Vector / BM25 Hybrid Retrieval"]
     G --> H["Lightweight Rerank"]
     H --> I["DeepSeek / LLM"]
     I --> J["Answer With Citations"]
@@ -122,8 +123,12 @@ Fetch-K: 先从向量库召回的候选片段数量
 
 ```text
 向量检索: 使用 embedding 相似度召回片段
-混合检索: 合并向量相似度和关键词匹配结果
+混合检索: 合并向量相似度和 BM25 关键词检索结果
 ```
+
+BM25 会考虑词项频率、逆文档频率和文档长度归一化，比单纯关键词重合更适合处理编号、术语、表格字段、OCR 文本等精确匹配场景。
+
+启用 `MMR 多样性召回` 后，系统不会只取分数最高的一串相似片段，而是在相关性和片段差异之间做平衡，避免多个高度重复的 chunk 占满上下文窗口。
 
 开启 `自动选择检索策略` 后，系统会根据问题类型自动选择检索模式和参数：
 
@@ -179,6 +184,12 @@ python scripts/run_eval.py --rerank --retrieval-mode hybrid
 python scripts/run_eval.py --router
 ```
 
+评测 MMR 多样性召回：
+
+```bash
+python scripts/run_eval.py --router --mmr
+```
+
 评测脚本会输出：
 
 - 问题数
@@ -186,6 +197,7 @@ python scripts/run_eval.py --router
 - 是否启用 rerank
 - 检索模式
 - 是否启用 Query Router
+- 是否启用 MMR
 - 关键词召回率
 - 总耗时
 - 每个问题命中的 top source 和相似度
@@ -203,6 +215,8 @@ python scripts/run_eval.py --router
 - RapidOCR
 - Sentence Transformers
 - Local JSON Vector Store
+- BM25
+- MMR
 - DeepSeek API
 
 ## 后续计划

@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from src.embeddings import embed_texts
-from src.reranker import lexical_similarity
+from src.retrieval_algorithms import bm25_search, normalize_scores, select_mmr
 from src.text_splitter import Chunk
 
 
@@ -44,7 +44,7 @@ class DocumentVectorStore:
         self._save(list(by_id.values()))
         return len(chunks)
 
-    def search(self, question: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def search(self, question: str, top_k: int = 5, use_mmr: bool = False) -> list[dict[str, Any]]:
         records = self._load()
         if not records:
             return []
@@ -56,7 +56,10 @@ class DocumentVectorStore:
             score = _cosine(question_embedding, embedding)
             hits.append(self._record_to_hit(record, score=score))
 
-        return sorted(hits, key=lambda item: item["score"], reverse=True)[:top_k]
+        hits = sorted(hits, key=lambda item: item["score"], reverse=True)
+        if use_mmr:
+            return select_mmr(hits, top_k=top_k)
+        return hits[:top_k]
 
     def search_hybrid(
         self,
@@ -65,6 +68,7 @@ class DocumentVectorStore:
         vector_k: int | None = None,
         keyword_k: int | None = None,
         vector_weight: float = 0.7,
+        use_mmr: bool = False,
     ) -> list[dict[str, Any]]:
         vector_k = vector_k or top_k
         keyword_k = keyword_k or top_k
@@ -96,7 +100,10 @@ class DocumentVectorStore:
             item["score"] = hybrid_score
             results.append(item)
 
-        return sorted(results, key=lambda item: item["hybrid_score"], reverse=True)[:top_k]
+        results = sorted(results, key=lambda item: item["hybrid_score"], reverse=True)
+        if use_mmr:
+            return select_mmr(results, top_k=top_k)
+        return results[:top_k]
 
     def count(self) -> int:
         return len(self._load())
@@ -151,17 +158,17 @@ class DocumentVectorStore:
         return deleted
 
     def _keyword_search(self, question: str, top_k: int = 5) -> list[dict[str, Any]]:
-        hits: list[dict[str, Any]] = []
+        scored_records = bm25_search(question, self._load(), top_k=top_k)
+        normalized_scores = normalize_scores([score for _, score in scored_records])
 
-        for record in self._load():
-            score = lexical_similarity(question, record.get("text", ""))
-            if score <= 0:
-                continue
-            hit = self._record_to_hit(record, score=score)
-            hit["keyword_score"] = score
+        hits: list[dict[str, Any]] = []
+        for (record, raw_score), normalized_score in zip(scored_records, normalized_scores):
+            hit = self._record_to_hit(record, score=normalized_score)
+            hit["keyword_score"] = normalized_score
+            hit["bm25_score"] = round(raw_score, 6)
             hits.append(hit)
 
-        return sorted(hits, key=lambda item: item["keyword_score"], reverse=True)[:top_k]
+        return hits
 
     def _record_to_hit(self, record: dict[str, Any], score: float) -> dict[str, Any]:
         metadata = record["metadata"]
@@ -173,6 +180,7 @@ class DocumentVectorStore:
             "page": metadata.get("page"),
             "chunk_index": metadata.get("chunk_index"),
             "score": max(0.0, float(score)),
+            "_embedding": record.get("embedding"),
         }
 
     def _load(self) -> list[dict[str, Any]]:

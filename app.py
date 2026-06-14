@@ -185,6 +185,7 @@ with tab_qa:
         fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
         retrieval_label = st.segmented_control("检索模式", ["向量检索", "混合检索"], default="混合检索")
         use_rerank = st.checkbox("启用轻量重排", value=True)
+        use_mmr = st.checkbox("启用 MMR 多样性召回", value=True)
 
         if st.button("检索并回答", type="primary", disabled=not question.strip()):
             with st.spinner("正在检索相关片段并生成答案..."):
@@ -219,9 +220,10 @@ with tab_qa:
                         top_k=effective_fetch_k,
                         vector_k=effective_fetch_k,
                         keyword_k=effective_fetch_k,
+                        use_mmr=use_mmr,
                     )
                 else:
-                    hits = store.search(retrieval_query, top_k=effective_fetch_k)
+                    hits = store.search(retrieval_query, top_k=effective_fetch_k, use_mmr=use_mmr)
                 if effective_rerank:
                     hits = rerank_hits(retrieval_query, hits, top_k=effective_top_k)
                 else:
@@ -336,6 +338,7 @@ with tab_eval:
     eval_auto_route = st.checkbox("评测启用自动策略", value=True)
     eval_retrieval_label = st.segmented_control("评测检索模式", ["向量检索", "混合检索"], default="混合检索")
     eval_rerank = st.checkbox("评测启用轻量重排", value=True)
+    eval_mmr = st.checkbox("评测启用 MMR 多样性召回", value=True)
 
     if st.button("运行示例评测", type="primary"):
         with st.spinner("正在运行评测..."):
@@ -348,6 +351,7 @@ with tab_eval:
                 use_rerank=eval_rerank,
                 retrieval_mode="hybrid" if eval_retrieval_label == "混合检索" else "vector",
                 use_router=eval_auto_route,
+                use_mmr=eval_mmr,
             )
         st.metric("关键词召回率", report["keyword_recall"])
         st.metric("耗时（秒）", report["elapsed_seconds"])

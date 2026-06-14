@@ -22,6 +22,7 @@ def run_retrieval_eval(
     use_rerank: bool = True,
     retrieval_mode: str = "vector",
     use_router: bool = False,
+    use_mmr: bool = False,
 ) -> dict[str, Any]:
     document_path = Path(document_path)
     questions_path = Path(questions_path)
@@ -51,9 +52,10 @@ def run_retrieval_eval(
                 top_k=effective_fetch_k,
                 vector_k=effective_fetch_k,
                 keyword_k=effective_fetch_k,
+                use_mmr=use_mmr,
             )
         else:
-            hits = store.search(question, top_k=effective_fetch_k)
+            hits = store.search(question, top_k=effective_fetch_k, use_mmr=use_mmr)
         if effective_rerank:
             hits = rerank_hits(question, hits, top_k=effective_top_k)
         else:
@@ -90,6 +92,7 @@ def run_retrieval_eval(
         "rerank": use_rerank,
         "retrieval_mode": retrieval_mode,
         "use_router": use_router,
+        "use_mmr": use_mmr,
         "keyword_recall": round(keyword_hits / keyword_total, 4) if keyword_total else 0,
         "elapsed_seconds": round(elapsed, 3),
         "rows": rows,

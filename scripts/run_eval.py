@@ -20,6 +20,7 @@ def main() -> None:
     parser.add_argument("--rerank", action="store_true")
     parser.add_argument("--retrieval-mode", choices=["vector", "hybrid"], default="vector")
     parser.add_argument("--router", action="store_true")
+    parser.add_argument("--mmr", action="store_true")
     args = parser.parse_args()
 
     report = run_retrieval_eval(
@@ -31,6 +32,7 @@ def main() -> None:
         use_rerank=args.rerank,
         retrieval_mode=args.retrieval_mode,
         use_router=args.router,
+        use_mmr=args.mmr,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
