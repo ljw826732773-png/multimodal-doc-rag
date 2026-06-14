@@ -32,6 +32,9 @@ src/reranker.py
 src/query_router.py
 根据问题类型自动选择检索模式、Top-K、Fetch-K 和是否启用 rerank。
 
+src/conversation.py
+构造最近问答上下文，并把追问改写为更适合检索的上下文增强查询。
+
 src/rag_chain.py
 构造 RAG prompt，并调用 DeepSeek、Ollama 或检索草稿模式生成答案。
 
@@ -59,6 +62,8 @@ flowchart TD
     Q --> J["Question Embedding"]
     J --> K["Vector / Hybrid Retrieval"]
     H --> K
+    S["Conversation History"] --> Q
+    S --> M
     K --> L["Lightweight Rerank"]
     L --> M["RAG Prompt"]
     M --> N["DeepSeek / LLM"]
@@ -94,6 +99,19 @@ general_qa: 默认问答
 ```
 
 不同意图会映射到不同的检索策略。例如事实类和图表类问题默认使用 Hybrid Search，总结类问题默认使用 Vector Search。
+
+## 多轮上下文
+
+多轮上下文由 `src/conversation.py` 负责。它会读取最近若干轮问答：
+
+```text
+Turn 1 question
+Turn 1 answer
+Turn 2 question
+Turn 2 answer
+```
+
+当用户输入“它”“这个”“上面”“继续”等追问时，系统会把最近对话拼接到检索查询中；同时把最近对话放入 RAG prompt，要求模型只用它理解指代关系，不能把历史对话当作新的文档事实。
 
 ## 答案生成策略
 

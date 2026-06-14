@@ -8,6 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.answer_diagnostics import build_answer_diagnostics
+from src.conversation import build_contextual_query, build_conversation_context
 from src.document_loader import IMAGE_SUFFIXES, PageText, load_document
 from src.evaluation import run_retrieval_eval
 from src.query_router import route_query
@@ -40,12 +41,19 @@ def get_store() -> DocumentVectorStore:
     return DocumentVectorStore(CHROMA_DIR)
 
 
-def add_history(question: str, answer: str, hits: list[dict], diagnostics: dict | None = None) -> None:
+def add_history(
+    question: str,
+    answer: str,
+    hits: list[dict],
+    diagnostics: dict | None = None,
+    retrieval_query: str | None = None,
+) -> None:
     st.session_state.setdefault("qa_history", [])
     st.session_state["qa_history"].append(
         {
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "question": question,
+            "retrieval_query": retrieval_query or question,
             "answer": answer,
             "citations": [
                 {
@@ -171,6 +179,8 @@ with tab_qa:
             placeholder="例如：这篇文档主要解决什么问题？",
         )
         auto_route = st.checkbox("自动选择检索策略", value=True)
+        use_conversation = st.checkbox("启用多轮上下文", value=True)
+        history_turns = st.slider("上下文轮数", min_value=1, max_value=5, value=3)
         top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
         fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
         retrieval_label = st.segmented_control("检索模式", ["向量检索", "混合检索"], default="混合检索")
@@ -178,7 +188,21 @@ with tab_qa:
 
         if st.button("检索并回答", type="primary", disabled=not question.strip()):
             with st.spinner("正在检索相关片段并生成答案..."):
-                route = route_query(question) if auto_route else None
+                history = st.session_state.get("qa_history", [])
+                conversation_context = (
+                    build_conversation_context(history, max_turns=history_turns)
+                    if use_conversation
+                    else ""
+                )
+                retrieval_query = (
+                    build_contextual_query(question, history, max_turns=history_turns)
+                    if use_conversation
+                    else question
+                )
+                if use_conversation and conversation_context:
+                    st.info("已使用最近问答作为多轮上下文增强检索。")
+
+                route = route_query(retrieval_query) if auto_route else None
                 effective_mode = route.retrieval_mode if route else ("hybrid" if retrieval_label == "混合检索" else "vector")
                 effective_top_k = route.top_k if route else top_k
                 effective_fetch_k = route.fetch_k if route else fetch_k
@@ -191,15 +215,15 @@ with tab_qa:
 
                 if effective_mode == "hybrid":
                     hits = store.search_hybrid(
-                        question,
+                        retrieval_query,
                         top_k=effective_fetch_k,
                         vector_k=effective_fetch_k,
                         keyword_k=effective_fetch_k,
                     )
                 else:
-                    hits = store.search(question, top_k=effective_fetch_k)
+                    hits = store.search(retrieval_query, top_k=effective_fetch_k)
                 if effective_rerank:
-                    hits = rerank_hits(question, hits, top_k=effective_top_k)
+                    hits = rerank_hits(retrieval_query, hits, top_k=effective_top_k)
                 else:
                     hits = hits[:effective_top_k]
                 answer = build_llm_answer(
@@ -209,16 +233,22 @@ with tab_qa:
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
+                    conversation_context=conversation_context,
                 )
                 diagnostics = build_answer_diagnostics(question, answer, hits)
                 st.session_state["last_hits"] = hits
                 st.session_state["last_answer"] = answer
                 st.session_state["last_diagnostics"] = diagnostics
-                add_history(question, answer, hits, diagnostics)
+                st.session_state["last_retrieval_query"] = retrieval_query
+                add_history(question, answer, hits, diagnostics, retrieval_query)
 
         if "last_answer" in st.session_state:
             st.markdown("#### 回答")
             st.write(st.session_state["last_answer"])
+            retrieval_query = st.session_state.get("last_retrieval_query")
+            if retrieval_query and retrieval_query != question:
+                with st.expander("本轮实际用于检索的上下文查询", expanded=False):
+                    st.code(retrieval_query)
 
     with right:
         st.subheader("引用来源")
@@ -281,6 +311,9 @@ with tab_history:
                 if item.get("diagnostics"):
                     st.write("诊断：")
                     st.json(item["diagnostics"])
+                if item.get("retrieval_query") and item["retrieval_query"] != item["question"]:
+                    st.write("检索查询：")
+                    st.code(item["retrieval_query"])
                 st.write("引用：")
                 st.json(item["citations"])
 

@@ -44,6 +44,7 @@ def build_llm_answer(
     model: str = "deepseek-v4-flash",
     base_url: str = "https://api.deepseek.com",
     api_key: str = "",
+    conversation_context: str = "",
 ) -> str:
     if provider == "disabled":
         return build_retrieval_answer(question, contexts)
@@ -51,7 +52,7 @@ def build_llm_answer(
     if not contexts:
         return "没有在当前知识库中检索到相关内容，无法基于文档回答。"
 
-    prompt = build_rag_prompt(question, contexts)
+    prompt = build_rag_prompt(question, contexts, conversation_context=conversation_context)
 
     try:
         if provider == "deepseek":
@@ -70,7 +71,7 @@ def build_llm_answer(
     raise ValueError(f"Unsupported provider: {provider}")
 
 
-def build_rag_prompt(question: str, contexts: list[dict]) -> str:
+def build_rag_prompt(question: str, contexts: list[dict], conversation_context: str = "") -> str:
     evidence = []
     for index, item in enumerate(contexts, start=1):
         source = item.get("source", "unknown")
@@ -82,6 +83,14 @@ def build_rag_prompt(question: str, contexts: list[dict]) -> str:
         )
 
     joined_evidence = "\n\n".join(evidence)
+    conversation_block = ""
+    if conversation_context.strip():
+        conversation_block = f"""
+最近对话：
+{conversation_context}
+
+请只把最近对话用于理解当前问题的指代关系，不要把对话内容当作新的文档事实。
+"""
     return f"""你是一个严谨的文档问答助手，任务是基于检索到的资料回答用户问题。
 
 必须遵守：
@@ -93,6 +102,7 @@ def build_rag_prompt(question: str, contexts: list[dict]) -> str:
    依据：
    引用来源：
    不确定信息：
+{conversation_block}
 
 资料：
 {joined_evidence}
