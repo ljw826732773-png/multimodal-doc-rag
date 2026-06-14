@@ -35,6 +35,9 @@ src/query_router.py
 src/rag_chain.py
 构造 RAG prompt，并调用 DeepSeek、Ollama 或检索草稿模式生成答案。
 
+src/answer_diagnostics.py
+基于检索分数、答案与证据的词项重合度、来源数量和风险规则生成答案可信度诊断。
+
 src/evaluation.py
 运行基础检索评测，计算关键词召回率和耗时。
 ```
@@ -61,6 +64,8 @@ flowchart TD
     M --> N["DeepSeek / LLM"]
     N --> O["Answer"]
     L --> P["Citations"]
+    O --> R["Answer Diagnostics"]
+    P --> R
 ```
 
 ## 检索策略
@@ -104,3 +109,17 @@ general_qa: 默认问答
 ```
 
 如果资料中没有答案，模型应回答“根据当前文档无法确定”。
+
+## 答案诊断
+
+答案诊断模块不再次调用大模型，而是对已经得到的答案和检索片段做轻量分析：
+
+```text
+top_score: 命中文档片段中的最高检索分数
+average_score: 命中文档片段的平均检索分数
+answer_coverage: 答案句子与证据片段之间的平均词项相似度
+source_count: 命中的不同来源文档数量
+warnings: 对低分数、低覆盖、来源过于单一等情况给出提示
+```
+
+它的作用是让用户看到答案背后的证据质量，降低 RAG 系统“看起来会答，但依据不足”的风险。

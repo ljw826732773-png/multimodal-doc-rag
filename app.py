@@ -7,6 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from src.answer_diagnostics import build_answer_diagnostics
 from src.document_loader import IMAGE_SUFFIXES, PageText, load_document
 from src.evaluation import run_retrieval_eval
 from src.query_router import route_query
@@ -39,7 +40,7 @@ def get_store() -> DocumentVectorStore:
     return DocumentVectorStore(CHROMA_DIR)
 
 
-def add_history(question: str, answer: str, hits: list[dict]) -> None:
+def add_history(question: str, answer: str, hits: list[dict], diagnostics: dict | None = None) -> None:
     st.session_state.setdefault("qa_history", [])
     st.session_state["qa_history"].append(
         {
@@ -55,6 +56,7 @@ def add_history(question: str, answer: str, hits: list[dict]) -> None:
                 }
                 for hit in hits
             ],
+            "diagnostics": diagnostics or {},
         }
     )
 
@@ -79,6 +81,7 @@ with st.sidebar:
         deleted = store.clear()
         st.session_state.pop("last_hits", None)
         st.session_state.pop("last_answer", None)
+        st.session_state.pop("last_diagnostics", None)
         st.success(f"已清空 {deleted} 个 chunk。")
 
     st.divider()
@@ -207,9 +210,11 @@ with tab_qa:
                     base_url=base_url,
                     api_key=api_key,
                 )
+                diagnostics = build_answer_diagnostics(question, answer, hits)
                 st.session_state["last_hits"] = hits
                 st.session_state["last_answer"] = answer
-                add_history(question, answer, hits)
+                st.session_state["last_diagnostics"] = diagnostics
+                add_history(question, answer, hits, diagnostics)
 
         if "last_answer" in st.session_state:
             st.markdown("#### 回答")
@@ -226,6 +231,23 @@ with tab_qa:
                 expanded=False,
             ):
                 st.write(hit["text"])
+
+        diagnostics = st.session_state.get("last_diagnostics")
+        if diagnostics:
+            st.divider()
+            st.subheader("答案诊断")
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("可信度", diagnostics.get("confidence", "unknown"))
+            col_b.metric("证据覆盖", diagnostics.get("answer_coverage", 0.0))
+            col_c.metric("来源数", diagnostics.get("source_count", 0))
+            st.progress(float(diagnostics.get("confidence_score", 0.0)))
+            warnings = diagnostics.get("warnings", [])
+            if warnings:
+                for warning in warnings:
+                    st.warning(warning)
+            else:
+                st.success("当前答案与检索证据匹配较好。")
+            st.dataframe(diagnostics.get("evidence_rows", []), use_container_width=True)
 
 with tab_kb:
     st.subheader("已索引文档")
@@ -256,6 +278,9 @@ with tab_history:
         for item in reversed(history):
             with st.expander(f"{item['time']} | {item['question']}", expanded=False):
                 st.write(item["answer"])
+                if item.get("diagnostics"):
+                    st.write("诊断：")
+                    st.json(item["diagnostics"])
                 st.write("引用：")
                 st.json(item["citations"])
 
