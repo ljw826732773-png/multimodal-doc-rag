@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--retrieval-mode", choices=["vector", "hybrid"], default="vector")
     parser.add_argument("--router", action="store_true")
     parser.add_argument("--mmr", action="store_true")
+    parser.add_argument("--multi-query", action="store_true")
     args = parser.parse_args()
 
     report = run_retrieval_eval(
@@ -33,6 +34,7 @@ def main() -> None:
         retrieval_mode=args.retrieval_mode,
         use_router=args.router,
         use_mmr=args.mmr,
+        use_multi_query=args.multi_query,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
 

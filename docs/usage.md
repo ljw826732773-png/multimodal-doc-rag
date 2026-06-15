@@ -67,6 +67,7 @@ PNG / JPG / JPEG / BMP / WEBP / TIF / TIFF
 Top-K
 Fetch-K
 检索模式
+是否启用多查询融合
 是否启用轻量重排
 是否启用 MMR 多样性召回
 ```
@@ -74,6 +75,8 @@ Fetch-K
 开启 `自动选择检索策略` 后，系统会根据问题自动选择检索模式、Top-K、Fetch-K 和 rerank 设置。关闭后，可以手动选择向量检索或混合检索。
 
 混合检索会同时使用 embedding 向量相似度和 BM25 关键词检索。对于编号、日期、金额、字段名、表格文本和 OCR 结果，BM25 通常比简单关键词重合更稳定。
+
+开启 `多查询融合` 后，系统会基于原问题、上下文和关键词生成多个查询变体，再用 RRF 融合多路检索结果。
 
 开启 `MMR 多样性召回` 后，系统会减少高度重复的片段进入最终上下文，适合长文档、重复段落较多的文档和多来源知识库。
 
@@ -121,6 +124,7 @@ python scripts/run_eval.py --rerank
 python scripts/run_eval.py --rerank --retrieval-mode hybrid
 python scripts/run_eval.py --router
 python scripts/run_eval.py --router --mmr
+python scripts/run_eval.py --router --mmr --multi-query
 ```
 
 评测结果会输出关键词召回率、耗时和每个问题命中的 top source。

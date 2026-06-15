@@ -7,7 +7,12 @@ from typing import Any
 import numpy as np
 
 from src.embeddings import embed_texts
-from src.retrieval_algorithms import bm25_search, normalize_scores, select_mmr
+from src.retrieval_algorithms import (
+    bm25_search,
+    normalize_scores,
+    reciprocal_rank_fusion,
+    select_mmr,
+)
 from src.text_splitter import Chunk
 
 
@@ -104,6 +109,45 @@ class DocumentVectorStore:
         if use_mmr:
             return select_mmr(results, top_k=top_k)
         return results[:top_k]
+
+    def search_multi(
+        self,
+        queries: list[dict[str, str]],
+        retrieval_mode: str = "hybrid",
+        top_k: int = 5,
+        per_query_k: int | None = None,
+        use_mmr: bool = False,
+    ) -> list[dict[str, Any]]:
+        per_query_k = per_query_k or max(top_k, 8)
+        ranked_lists: list[list[dict[str, Any]]] = []
+
+        for variant_index, variant in enumerate(queries):
+            query_text = variant.get("query", "").strip()
+            if not query_text:
+                continue
+
+            if retrieval_mode == "hybrid":
+                hits = self.search_hybrid(
+                    query_text,
+                    top_k=per_query_k,
+                    vector_k=per_query_k,
+                    keyword_k=per_query_k,
+                    use_mmr=False,
+                )
+            else:
+                hits = self.search(query_text, top_k=per_query_k, use_mmr=False)
+
+            for hit in hits:
+                hit["query_variant"] = variant.get("strategy", f"variant_{variant_index}")
+                hit["query_text"] = query_text
+                hit["retrieval_mode"] = retrieval_mode
+            ranked_lists.append(hits)
+
+        fused_limit = max(top_k * 3, per_query_k)
+        fused = reciprocal_rank_fusion(ranked_lists, top_k=fused_limit)
+        if use_mmr:
+            return select_mmr(fused, top_k=top_k)
+        return fused[:top_k]
 
     def count(self) -> int:
         return len(self._load())

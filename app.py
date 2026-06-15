@@ -12,6 +12,7 @@ from src.conversation import build_contextual_query, build_conversation_context
 from src.document_loader import IMAGE_SUFFIXES, PageText, load_document
 from src.evaluation import run_retrieval_eval
 from src.query_router import route_query
+from src.query_transform import build_query_variants
 from src.rag_chain import build_llm_answer
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
@@ -47,6 +48,7 @@ def add_history(
     hits: list[dict],
     diagnostics: dict | None = None,
     retrieval_query: str | None = None,
+    query_variants: list[dict] | None = None,
 ) -> None:
     st.session_state.setdefault("qa_history", [])
     st.session_state["qa_history"].append(
@@ -54,6 +56,7 @@ def add_history(
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "question": question,
             "retrieval_query": retrieval_query or question,
+            "query_variants": query_variants or [],
             "answer": answer,
             "citations": [
                 {
@@ -90,6 +93,7 @@ with st.sidebar:
         st.session_state.pop("last_hits", None)
         st.session_state.pop("last_answer", None)
         st.session_state.pop("last_diagnostics", None)
+        st.session_state.pop("last_query_variants", None)
         st.success(f"已清空 {deleted} 个 chunk。")
 
     st.divider()
@@ -184,6 +188,7 @@ with tab_qa:
         top_k = st.slider("检索 Top-K", min_value=1, max_value=10, value=5)
         fetch_k = st.slider("召回 Fetch-K", min_value=top_k, max_value=20, value=max(8, top_k))
         retrieval_label = st.segmented_control("检索模式", ["向量检索", "混合检索"], default="混合检索")
+        use_multi_query = st.checkbox("启用多查询融合", value=True)
         use_rerank = st.checkbox("启用轻量重排", value=True)
         use_mmr = st.checkbox("启用 MMR 多样性召回", value=True)
 
@@ -214,7 +219,36 @@ with tab_qa:
                         f"Top-K={route.top_k}, Fetch-K={route.fetch_k}。{route.reason}"
                     )
 
-                if effective_mode == "hybrid":
+                query_variants = [
+                    {
+                        "query": item.query,
+                        "strategy": item.strategy,
+                        "reason": item.reason,
+                    }
+                    for item in build_query_variants(
+                        question,
+                        contextual_query=retrieval_query,
+                        conversation_context=conversation_context,
+                    )
+                ]
+                if not use_multi_query:
+                    query_variants = [
+                        {
+                            "query": retrieval_query,
+                            "strategy": "single",
+                            "reason": "Use one retrieval query without fusion.",
+                        }
+                    ]
+
+                if use_multi_query:
+                    hits = store.search_multi(
+                        query_variants,
+                        retrieval_mode=effective_mode,
+                        top_k=effective_fetch_k,
+                        per_query_k=effective_fetch_k,
+                        use_mmr=use_mmr,
+                    )
+                elif effective_mode == "hybrid":
                     hits = store.search_hybrid(
                         retrieval_query,
                         top_k=effective_fetch_k,
@@ -242,7 +276,8 @@ with tab_qa:
                 st.session_state["last_answer"] = answer
                 st.session_state["last_diagnostics"] = diagnostics
                 st.session_state["last_retrieval_query"] = retrieval_query
-                add_history(question, answer, hits, diagnostics, retrieval_query)
+                st.session_state["last_query_variants"] = query_variants
+                add_history(question, answer, hits, diagnostics, retrieval_query, query_variants)
 
         if "last_answer" in st.session_state:
             st.markdown("#### 回答")
@@ -251,6 +286,10 @@ with tab_qa:
             if retrieval_query and retrieval_query != question:
                 with st.expander("本轮实际用于检索的上下文查询", expanded=False):
                     st.code(retrieval_query)
+            query_variants = st.session_state.get("last_query_variants", [])
+            if query_variants:
+                with st.expander("本轮多查询变体", expanded=False):
+                    st.json(query_variants)
 
     with right:
         st.subheader("引用来源")
@@ -316,6 +355,9 @@ with tab_history:
                 if item.get("retrieval_query") and item["retrieval_query"] != item["question"]:
                     st.write("检索查询：")
                     st.code(item["retrieval_query"])
+                if item.get("query_variants"):
+                    st.write("查询变体：")
+                    st.json(item["query_variants"])
                 st.write("引用：")
                 st.json(item["citations"])
 
@@ -339,6 +381,7 @@ with tab_eval:
     eval_retrieval_label = st.segmented_control("评测检索模式", ["向量检索", "混合检索"], default="混合检索")
     eval_rerank = st.checkbox("评测启用轻量重排", value=True)
     eval_mmr = st.checkbox("评测启用 MMR 多样性召回", value=True)
+    eval_multi_query = st.checkbox("评测启用多查询融合", value=True)
 
     if st.button("运行示例评测", type="primary"):
         with st.spinner("正在运行评测..."):
@@ -352,6 +395,7 @@ with tab_eval:
                 retrieval_mode="hybrid" if eval_retrieval_label == "混合检索" else "vector",
                 use_router=eval_auto_route,
                 use_mmr=eval_mmr,
+                use_multi_query=eval_multi_query,
             )
         st.metric("关键词召回率", report["keyword_recall"])
         st.metric("耗时（秒）", report["elapsed_seconds"])

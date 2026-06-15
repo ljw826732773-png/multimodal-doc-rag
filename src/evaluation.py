@@ -8,6 +8,7 @@ from typing import Any
 from src.document_loader import load_document
 from src.rag_chain import build_llm_answer
 from src.query_router import route_query
+from src.query_transform import build_query_variants
 from src.reranker import rerank_hits
 from src.text_splitter import split_pages
 from src.vector_store import DocumentVectorStore
@@ -23,6 +24,7 @@ def run_retrieval_eval(
     retrieval_mode: str = "vector",
     use_router: bool = False,
     use_mmr: bool = False,
+    use_multi_query: bool = False,
 ) -> dict[str, Any]:
     document_path = Path(document_path)
     questions_path = Path(questions_path)
@@ -46,7 +48,23 @@ def run_retrieval_eval(
         effective_top_k = route.top_k if route else top_k
         effective_fetch_k = route.fetch_k if route else fetch_k
 
-        if effective_mode == "hybrid":
+        query_variants = [
+            {
+                "query": variant.query,
+                "strategy": variant.strategy,
+                "reason": variant.reason,
+            }
+            for variant in build_query_variants(question, contextual_query=question)
+        ]
+        if use_multi_query:
+            hits = store.search_multi(
+                query_variants,
+                retrieval_mode=effective_mode,
+                top_k=effective_fetch_k,
+                per_query_k=effective_fetch_k,
+                use_mmr=use_mmr,
+            )
+        elif effective_mode == "hybrid":
             hits = store.search_hybrid(
                 question,
                 top_k=effective_fetch_k,
@@ -78,6 +96,7 @@ def run_retrieval_eval(
                 "top_score": round(hits[0]["score"], 4) if hits else 0,
                 "route_intent": route.intent if route else None,
                 "route_reason": route.reason if route else None,
+                "query_variants": [variant["strategy"] for variant in query_variants] if use_multi_query else [],
             }
         )
 
@@ -93,6 +112,7 @@ def run_retrieval_eval(
         "retrieval_mode": retrieval_mode,
         "use_router": use_router,
         "use_mmr": use_mmr,
+        "use_multi_query": use_multi_query,
         "keyword_recall": round(keyword_hits / keyword_total, 4) if keyword_total else 0,
         "elapsed_seconds": round(elapsed, 3),
         "rows": rows,

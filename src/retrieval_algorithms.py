@@ -105,6 +105,58 @@ def select_mmr(
     return selected
 
 
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[dict[str, Any]]],
+    top_k: int,
+    rank_constant: int = 60,
+) -> list[dict[str, Any]]:
+    fused: dict[str, dict[str, Any]] = {}
+
+    for list_index, hits in enumerate(ranked_lists):
+        for rank, hit in enumerate(hits, start=1):
+            hit_id = str(hit.get("id"))
+            if not hit_id:
+                continue
+
+            contribution = 1.0 / (rank_constant + rank)
+            item = fused.setdefault(
+                hit_id,
+                {
+                    **hit,
+                    "rrf_score": 0.0,
+                    "fusion_sources": [],
+                    "score": 0.0,
+                },
+            )
+            item["rrf_score"] += contribution
+            item["fusion_sources"].append(
+                {
+                    "list": list_index,
+                    "rank": rank,
+                    "score": round(float(hit.get("score", 0.0)), 6),
+                    "query_variant": hit.get("query_variant"),
+                    "retrieval_mode": hit.get("retrieval_mode"),
+                }
+            )
+
+            if float(hit.get("score", 0.0)) > float(item.get("_best_original_score", -1.0)):
+                item.update(hit)
+                item["_best_original_score"] = float(hit.get("score", 0.0))
+
+    results = []
+    for item in fused.values():
+        item.pop("_best_original_score", None)
+        results.append(item)
+
+    results = sorted(results, key=lambda hit: hit["rrf_score"], reverse=True)
+    normalized_scores = normalize_scores([float(hit["rrf_score"]) for hit in results])
+    for hit, normalized_score in zip(results, normalized_scores):
+        hit["score"] = normalized_score
+        hit["rrf_score"] = round(float(hit["rrf_score"]), 6)
+
+    return results[:top_k]
+
+
 def _document_frequency(doc_tokens: list[list[str]]) -> Counter[str]:
     frequency: Counter[str] = Counter()
     for tokens in doc_tokens:

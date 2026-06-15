@@ -15,6 +15,7 @@
 - 支持向量检索和 Hybrid Search，关键词检索部分使用 BM25
 - 支持 Query Router 自动选择检索策略
 - 支持多轮上下文，将最近问答用于追问消歧和检索增强
+- 支持多查询融合，将原问题、上下文查询和关键词查询通过 RRF 合并
 - 支持 MMR 多样性召回，减少重复片段挤占上下文窗口
 - 支持轻量 rerank，对召回片段进行二次排序
 - 支持 DeepSeek API 生成结构化答案
@@ -54,12 +55,14 @@ flowchart LR
     C --> D
     D --> E["Embedding"]
     E --> F["Local JSON Vector Store"]
-    F --> G["Vector / BM25 Hybrid Retrieval"]
-    G --> H["Lightweight Rerank"]
+    Q["Query Transform"] --> G["Multi-query Vector / BM25 Retrieval"]
+    F --> G
+    G --> R["RRF Fusion"]
+    R --> H["MMR / Lightweight Rerank"]
     H --> I["DeepSeek / LLM"]
     I --> J["Answer With Citations"]
     J --> K["Answer Diagnostics"]
-    L["Conversation History"] --> G
+    L["Conversation History"] --> Q
     L --> I
 ```
 
@@ -130,6 +133,17 @@ BM25 会考虑词项频率、逆文档频率和文档长度归一化，比单纯
 
 启用 `MMR 多样性召回` 后，系统不会只取分数最高的一串相似片段，而是在相关性和片段差异之间做平衡，避免多个高度重复的 chunk 占满上下文窗口。
 
+启用 `多查询融合` 后，系统会从一个问题构造多个检索查询：
+
+```text
+original: 用户原问题
+contextual: 结合最近对话后的上下文查询
+keywords: 保留高信号词项的关键词查询
+focused: 当前问题 + 精简历史线索
+```
+
+这些查询会分别检索，再用 RRF（Reciprocal Rank Fusion）按排名融合。这样做的好处是，一个复杂问题不必赌某一种 query 写法能命中所有证据。
+
 开启 `自动选择检索策略` 后，系统会根据问题类型自动选择检索模式和参数：
 
 ```text
@@ -190,6 +204,12 @@ python scripts/run_eval.py --router
 python scripts/run_eval.py --router --mmr
 ```
 
+评测多查询融合：
+
+```bash
+python scripts/run_eval.py --router --mmr --multi-query
+```
+
 评测脚本会输出：
 
 - 问题数
@@ -198,6 +218,7 @@ python scripts/run_eval.py --router --mmr
 - 检索模式
 - 是否启用 Query Router
 - 是否启用 MMR
+- 是否启用多查询融合
 - 关键词召回率
 - 总耗时
 - 每个问题命中的 top source 和相似度
@@ -216,6 +237,7 @@ python scripts/run_eval.py --router --mmr
 - Sentence Transformers
 - Local JSON Vector Store
 - BM25
+- RRF
 - MMR
 - DeepSeek API
 

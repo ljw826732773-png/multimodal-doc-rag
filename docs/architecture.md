@@ -35,6 +35,9 @@ src/reranker.py
 src/query_router.py
 根据问题类型自动选择检索模式、Top-K、Fetch-K 和是否启用 rerank。
 
+src/query_transform.py
+根据原问题、对话上下文和高信号词项生成多个检索查询变体。
+
 src/conversation.py
 构造最近问答上下文，并把追问改写为更适合检索的上下文增强查询。
 
@@ -62,12 +65,14 @@ flowchart TD
     F --> G["Embedding"]
     G --> H["Local JSON Vector Store"]
     I["User Question"] --> Q["Query Router"]
-    Q --> J["Question Embedding"]
-    J --> K["Vector / BM25 Hybrid Retrieval"]
+    Q --> T["Query Transform"]
+    T --> J["Question Embeddings / BM25 Queries"]
+    J --> K["Multi-query Vector / BM25 Retrieval"]
     H --> K
-    S["Conversation History"] --> Q
+    S["Conversation History"] --> T
     S --> M
-    K --> D2["MMR Diversity Selection Optional"]
+    K --> R2["RRF Fusion"]
+    R2 --> D2["MMR Diversity Selection Optional"]
     D2 --> L["Lightweight Rerank"]
     L --> M["RAG Prompt"]
     M --> N["DeepSeek / LLM"]
@@ -94,6 +99,19 @@ BM25 会根据词项频率、逆文档频率和文档长度归一化计算关键
 检索阶段可以启用 MMR 多样性召回，在相关性和片段差异之间做平衡，减少多个相似 chunk 重复占用上下文窗口。
 
 检索后可以启用轻量 rerank，对候选片段进行二次排序。
+
+## 多查询融合
+
+`src/query_transform.py` 会从当前问题构造多个查询变体：
+
+```text
+original: 用户原始问题
+contextual: 结合最近对话的上下文查询
+keywords: 去掉低信息词后的关键词查询
+focused: 当前问题加上压缩后的历史线索
+```
+
+每个查询变体会单独进入向量检索或 Hybrid Search。`src/retrieval_algorithms.py` 使用 RRF 合并不同查询的排名结果：在多个查询里都靠前的片段会被提升，只在某个查询中偶然靠前的片段权重较低。RRF 后还可以继续接 MMR 和 rerank。
 
 ## Query Router
 
